@@ -1,6 +1,6 @@
 # ever-node
 
-Everscale/Venom node and validator with tools
+Everscale node and validator with tools
 
 ## Table of Contents
 
@@ -12,14 +12,15 @@ Everscale/Venom node and validator with tools
 
 ## About
 
-Implementation of Everscal/Venom node and validator in safe Rust. This repository also contains a collection of tools used to manage the Everscale/Venom node.
+Implementation of Everscal node and validator in safe Rust. This repository also contains a collection of tools used to manage the Everscale node.
 
 ## Getting Started
 
 ### Prerequisites
 
-Rust complier v1.76+.
+- Rust, [rustup](https://rustup.rs). The Rust version is pinned in `rust-toolchain.toml`, and rustup installs it automatically on the first `cargo` command in the project directory.
 
+- Build dependencies (Debian/Ubuntu):
 ```
 apt-get update
 apt-get install pkg-config make clang libssl-dev libzstd-dev libgoogle-perftools-dev
@@ -28,7 +29,7 @@ apt-get install pkg-config make clang libssl-dev libzstd-dev libgoogle-perftools
 ### Installing
 
 ```
-git clone --recurse-submodules https://github.com/everx-labs/ever-node.git
+git clone --recurse-submodules https://github.com/open-ever/ever-node.git
 cd ever-node
 cargo build --release
 ```
@@ -42,14 +43,14 @@ cargo test --release --package validator_session -- --nocapture --test-threads=1
 cargo test --release -- --nocapture --test-threads=1
 ```
 
-## Everscale/Venom Node Usage
+## Everscale Node Usage
 
 To get help about command line arguments, run
 ```
 ever-node --help
 ```
 
-## Everscale/Venom Console Usage
+## Everscale Console Usage
 
 This tool serves the purpose of generating election requests for the Rust Node. The tool is compatible with [TONOS-CLI](https://github.com/everx-labs/tonos-cli) and allows to perform all actions necessary to obtain a signed election request.
 
@@ -479,7 +480,3 @@ Contribution to the project is expected to be done via pull requests submission.
 ## License
 
 See the [LICENSE](LICENSE) file for details.
-
-## Tags
-
-`blockchain` `everscale` `rust` `venom-blockchain` `venom-developer-program` `venom-node` `venom-validator` 

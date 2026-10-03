@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+- Switched all git dependencies from to `open-ever`
+- Switched the `common` submodule to `open-ever/common`
+- Bumped the Rust toolchain to the latest stable release (1.99.0)
+- Adapted the `catchain` to support the up-to-date `adnl` package
+
 ## Version 0.60.11
 
 - Decreased error severity for wrong REMP blocks enumeration
