@@ -11,7 +11,9 @@
 * limitations under the License.
 */
 
-use crate::network::node_network::NodeNetwork;
+use crate::{
+    lite_server::LiteServerConfigJson, network::node_network::NodeNetwork
+};
 use adnl::{
     client::AdnlClientConfigJson,
     common::{add_unbound_object_to_map_with_update, Wait},
@@ -147,6 +149,8 @@ pub struct TonNodeConfig {
     #[serde(skip_serializing)]
     control_server_port: Option<u16>,
     control_server: Option<AdnlServerConfigJson>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    lite_server: Option<LiteServerConfigJson>,
     kafka_consumer_config: Option<KafkaConsumerConfig>,
     external_db_config: Option<ExternalDbConfig>,
     default_rldp_roundtrip_ms: Option<u32>,
@@ -503,6 +507,13 @@ impl TonNodeConfig {
         match &self.control_server {
             Some(cs) => Ok(Some(AdnlServerConfig::from_json_config(cs)?)),
             None => Ok(None)
+        }
+    }
+
+    pub fn lite_server(&self) -> Result<Option<AdnlServerConfig>> {
+        match &self.lite_server {
+            Some(config) if config.enabled => Ok(Some(config.adnl_config()?)),
+            _ => Ok(None)
         }
     }
 

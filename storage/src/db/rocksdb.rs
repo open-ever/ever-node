@@ -18,8 +18,8 @@ use crate::{
 };
 use adnl::common::add_unbound_object_to_map;
 use rocksdb::{
-    BlockBasedOptions, BoundColumnFamily, Cache, DBWithThreadMode, IteratorMode, MultiThreaded,
-    Options, SnapshotWithThreadMode, WriteBatch
+    BlockBasedOptions, BoundColumnFamily, Cache, DBWithThreadMode, Direction, IteratorMode,
+    MultiThreaded, Options, SnapshotWithThreadMode, WriteBatch
 };
 use std::{
     fmt::{Debug, Formatter}, ops::Deref, path::Path, sync::{Arc, atomic::{AtomicI32, Ordering}},
@@ -32,6 +32,7 @@ pub const LAST_UNNEEDED_KEY_BLOCK: &str = "LastUnneededKeyBlockId"; // Latest ke
 pub const NODE_STATE_DB_NAME: &str = "node_state_db";
 
 pub type DbPredicateMut<'a> = &'a mut dyn FnMut(&[u8], &[u8]) -> Result<bool>;
+pub type DbEntry = (Box<[u8]>, Box<[u8]>);
 
 #[derive(Debug)]
 pub struct RocksDb {
@@ -422,6 +423,32 @@ impl<K: DbKey + Send + Sync> RocksDbTable<K> {
                 return Ok(ret?.map(|value| value.into()))
             }
         }
+        fail!("Attempt to read from dropped table {}", self.family)
+    }
+
+    /// Returns the last entry with key less than or equal to `key`
+    pub fn find_last_le(&self, key: &[u8]) -> Result<Option<DbEntry>> {
+        self.find_entry(key, Direction::Reverse)
+    }
+
+    /// Returns the first entry with key greater than or equal to `key`
+    pub fn find_first_ge(&self, key: &[u8]) -> Result<Option<DbEntry>> {
+        self.find_entry(key, Direction::Forward)
+    }
+
+    fn find_entry(&self, key: &[u8], direction: Direction) -> Result<Option<DbEntry>> {
+        if let Some(lock) = self.db.locks.get(&self.family) {
+            let lock = lock.val();
+            if lock.fetch_add(1, Ordering::Relaxed) >= 0 {
+                let ret = self.db
+                    .iterator_cf(&self.cf()?, IteratorMode::From(key, direction))
+                    .next()
+                    .transpose();
+                lock.fetch_sub(1, Ordering::Relaxed);
+                return Ok(ret?)
+            }
+        }
+
         fail!("Attempt to read from dropped table {}", self.family)
     }
 

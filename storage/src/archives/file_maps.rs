@@ -270,6 +270,10 @@ impl FileMap {
         Some(Arc::clone(&guard[index].value))
     }
 
+    pub async fn first_mc_seq_no(&self) -> Option<u32> {
+        self.elements.read().await.first().map(|entry| entry.key)
+    }
+
     pub async fn get_closest_id(&self, mc_seq_no: u32) -> Option<u32> {
         self.get_closest(mc_seq_no).await.map(|fd| fd.id().id())
     }

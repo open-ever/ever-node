@@ -22,6 +22,7 @@ pub mod engine_traits;
 pub mod engine_operations;
 pub mod full_node;
 pub mod internal_db;
+pub mod lite_server;
 pub mod macros;
 pub mod network;
 pub mod rng;

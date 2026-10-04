@@ -29,6 +29,7 @@ use crate::{
     internal_db::{
         InternalDb, InternalDbConfig, ARCHIVES_GC_BLOCK, INITIAL_MC_BLOCK, LAST_APPLIED_MC_BLOCK, PSS_KEEPER_MC_BLOCK
     },
+    lite_server::LiteServer,
     network::{
         control::{ControlServer, DataSource, StatusReporter},
         full_node_client::FullNodeOverlayClient, full_node_service::FullNodeOverlayService,
@@ -961,6 +962,11 @@ impl Engine {
                     log::info!("Stopping control server...");
                     server.shutdown().await;
                     log::info!("Stopped control server");
+                },
+                Server::LiteServer(server) => {
+                    log::info!("Stopping lite server...");
+                    server.shutdown().await;
+                    log::info!("Stopped lite server");
                 },
                 #[cfg(feature = "external_db")]
                 Server::KafkaConsumer(trigger) => {
@@ -2767,6 +2773,7 @@ pub async fn run(
     #[cfg(feature = "external_db")]
     let consumer_config = node_config.kafka_consumer_config();
     let control_server_config = node_config.control_server()?;
+    let lite_server_config = node_config.lite_server()?;
     let remp_config = node_config.remp_config().clone();
     let vm_config = ValidatorManagerConfig::read_configs(
         node_config.unsafe_catchain_patches_files(),
@@ -2807,6 +2814,11 @@ pub async fn run(
             );
             engine.register_server(server)
         };
+
+        if let Some(config) = lite_server_config {
+            let server = LiteServer::start(config, engine.clone()).await?;
+            engine.register_server(Server::LiteServer(server))
+        }
 
         #[cfg(feature = "external_db")]
         // Messages from external DB (usually kafka)

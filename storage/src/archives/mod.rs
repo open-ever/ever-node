@@ -46,7 +46,7 @@ fn get_mc_seq_no_opt(block_handle: Option<&BlockHandle>) -> u32 {
     }
 }
 
-fn get_mc_seq_no(handle: &BlockHandle) -> u32 {
+pub fn get_mc_seq_no(handle: &BlockHandle) -> u32 {
     if handle.id().shard().is_masterchain() {
         handle.id().seq_no()
     } else {

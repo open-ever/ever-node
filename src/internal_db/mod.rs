@@ -26,16 +26,16 @@ use std::{
 };
 use storage::{
     StorageAlloc, TimeChecker,
-    archives::{archive_manager::ArchiveManager, package_entry_id::PackageEntryId},
+    archives::{archive_manager::ArchiveManager, get_mc_seq_no, package_entry_id::PackageEntryId},
     block_handle_db::{self, BlockHandle, BlockHandleDb, BlockHandleStorage}, 
     block_info_db::BlockInfoDb, db::rocksdb::RocksDb, block_handle_db::NodeStateDb, 
     types::BlockMeta, db::filedb::FileDb, shard_top_blocks_db::ShardTopBlocksDb,
-    traits::Serializable, shardstate_db_async::CellsDbConfig,
+    traits::Serializable, shardstate_db_async::CellsDbConfig, lt_index_db::LtIndexDb,
 };
 use storage::shardstate_db_async::{self, AllowStateGcResolver, ShardStateDb};
 #[cfg(feature = "telemetry")]
 use storage::StorageTelemetry;
-use ever_block::{Block, BlockIdExt, INVALID_WORKCHAIN_ID, CellsFactory};
+use ever_block::{AccountIdPrefixFull, Block, BlockIdExt, CellsFactory, INVALID_WORKCHAIN_ID};
 use ever_block::{
     error, fail, Result, UInt256, Cell, BocWriterStack, MAX_SAFE_DEPTH, DoneCellsStorage,
 };
@@ -193,6 +193,7 @@ pub struct InternalDb {
     shard_top_blocks_db: ShardTopBlocksDb,
     full_node_state_db: Arc<NodeStateDb>,
     mesh_key_block_proofs_db: BlockInfoDb,
+    lt_index_db: LtIndexDb,
 
     config: InternalDbConfig,
     cells_gc_interval: Arc<AtomicU32>,
@@ -309,6 +310,7 @@ impl InternalDb {
             shard_top_blocks_db: ShardTopBlocksDb::with_db(db.clone(), "shard_top_blocks_db", true)?,
             full_node_state_db,
             mesh_key_block_proofs_db: BlockInfoDb::with_db(db.clone(), "mesh_key_block_proofs_db", true)?,
+            lt_index_db: LtIndexDb::with_db(db.clone(), "lt_index_db", true)?,
 
             cells_gc_interval: Arc::new(AtomicU32::new(config.cells_gc_interval_sec)),
             config,
@@ -1076,6 +1078,9 @@ impl InternalDb {
         let _tc = TimeChecker::new(format!("store_block_applied {}", handle.id()), 30);
         if handle.set_block_applied() {
             self.store_block_handle(handle, callback)?;
+            if handle.id().seq_no() != 0 && !handle.is_mesh() && !handle.is_queue_update() {
+                self.lt_index_db.put_block(handle.id(), handle.gen_lt())?;
+            }
             Ok(true)
         } else {
             Ok(false)
@@ -1182,7 +1187,23 @@ impl InternalDb {
     pub async fn archive_gc(&self, last_unneeded_key_block: &BlockIdExt) -> Result<()> {
         let _tc = TimeChecker::new(format!("archive_gc {}", last_unneeded_key_block), 300);
         self.archive_manager.gc(last_unneeded_key_block).await;
+        if let Err(e) = self.lt_index_gc().await {
+            log::error!(target: "storage", "LT index GC error: {}", e);
+        }
         self.save_full_node_state(LAST_UNNEEDED_KEY_BLOCK, last_unneeded_key_block)
+    }
+
+    // Drops LT index entries of blocks which are not in the archives anymore
+    async fn lt_index_gc(&self) -> Result<()> {
+        let Some(first_mc_seq_no) = self.archive_manager.first_block_mc_seq_no().await else {
+            return Ok(())
+        };
+        let deleted = self.lt_index_db.gc(|id| match self.load_block_handle(id)? {
+            Some(handle) => Ok(get_mc_seq_no(&handle) < first_mc_seq_no),
+            None => Ok(true)
+        })?;
+        log::info!(target: "storage", "LT index GC: deleted {} entries", deleted);
+        Ok(())
     }
 
     pub fn assign_mc_ref_seq_no(
@@ -1287,6 +1308,9 @@ impl InternalDb {
         // truncate handles and prev/next links
         fn clear_dbs(db: &InternalDb, id: BlockIdExt) {
             log::trace!("truncate_database: trying to drop handle {}", id);
+            if let Ok(Some(handle)) = db.load_block_handle(&id) {
+                let _ = db.lt_index_db.delete_block(&id, handle.gen_lt());
+            }
             let _ = db.block_handle_storage.drop_handle(id.clone(), None);
             let _ = db.prev2_block_db.delete(&id);
             let _ = db.prev1_block_db.delete(&id);
@@ -1372,6 +1396,12 @@ impl InternalDb {
             Ok(true)
         })?;
         Ok(())
+    }
+
+    /// Finds the applied block of the account's shard chain which contains `lt`
+    pub fn find_block_by_lt(&self, account: &AccountIdPrefixFull, lt: u64) -> Result<Option<BlockIdExt>> {
+        let _tc = TimeChecker::new(format!("find_block_by_lt {}", lt), 30);
+        self.lt_index_db.find_block(account, lt)
     }
 
     pub fn find_full_block_id(&self, root_hash: &UInt256) -> Result<Option<BlockIdExt>> {
