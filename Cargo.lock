@@ -41,7 +41,37 @@ dependencies = [
  "num-traits",
  "num_cpus",
  "rand 0.8.8",
- "raptor-q",
+ "raptor-q 1.7.0 (git+https://github.com/open-ever/ever-adnl.git?tag=0.11.40)",
+ "serde",
+ "serde_json",
+ "socket2 0.3.19",
+ "stream-cancel",
+ "tokio",
+ "tokio-io-timeout",
+ "tokio-stream",
+ "ton_api",
+ "zstd 0.11.2+zstd.1.5.2",
+]
+
+[[package]]
+name = "adnl"
+version = "0.11.41"
+source = "git+https://github.com/open-ever/ever-adnl.git?tag=0.11.41#299f0c969429d08877e1e167a5d5f84679fba80b"
+dependencies = [
+ "aes-ctr",
+ "anyhow",
+ "async-trait",
+ "enum-as-inner 0.5.1",
+ "ever_block",
+ "external-ip",
+ "futures",
+ "hex 0.4.3",
+ "lockfree",
+ "log",
+ "num-traits",
+ "num_cpus",
+ "rand 0.8.8",
+ "raptor-q 1.7.0 (git+https://github.com/open-ever/ever-adnl.git?tag=0.11.41)",
  "serde",
  "serde_json",
  "socket2 0.3.19",
@@ -445,7 +475,7 @@ dependencies = [
 name = "catchain"
 version = "0.1.1"
 dependencies = [
- "adnl",
+ "adnl 0.11.40",
  "anyhow",
  "chrono",
  "crossbeam",
@@ -1103,7 +1133,7 @@ dependencies = [
 name = "ever-node"
 version = "0.60.11"
 dependencies = [
- "adnl",
+ "adnl 0.11.41",
  "anyhow",
  "async-recursion",
  "async-trait",
@@ -3002,6 +3032,11 @@ version = "1.7.0"
 source = "git+https://github.com/open-ever/ever-adnl.git?tag=0.11.40#772cc1cb2f7e0bc108abf805ffdda6408b09bbe0"
 
 [[package]]
+name = "raptor-q"
+version = "1.7.0"
+source = "git+https://github.com/open-ever/ever-adnl.git?tag=0.11.41#299f0c969429d08877e1e167a5d5f84679fba80b"
+
+[[package]]
 name = "raw-cpuid"
 version = "10.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3534,7 +3569,7 @@ dependencies = [
 name = "storage"
 version = "0.6.1"
 dependencies = [
- "adnl",
+ "adnl 0.11.40",
  "ahash",
  "anyhow",
  "async-trait",
@@ -4117,7 +4152,7 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 name = "validator_session"
 version = "0.0.3"
 dependencies = [
- "adnl",
+ "adnl 0.11.40",
  "anyhow",
  "backtrace",
  "catchain",

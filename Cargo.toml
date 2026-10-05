@@ -93,7 +93,7 @@ ever_block = { git = 'https://github.com/open-ever/ever-block.git', tag = '1.11.
 ever_block_json = { git = 'https://github.com/open-ever/ever-block-json.git', tag = '0.9.42' }
 lockfree = { git = 'https://github.com/open-ever/lockfree.git', tag = 'v0.5.2' }
 ton_api = { git = 'https://github.com/open-ever/ever-tl.git', package = 'ton_api', tag = '0.4.34' }
-adnl = { features = [ 'client', 'node', 'server' ], git = 'https://github.com/open-ever/ever-adnl.git', tag = '0.11.40' }
+adnl = { features = [ 'client', 'node', 'server' ], git = 'https://github.com/open-ever/ever-adnl.git', tag = '0.11.41' }
 ever_abi = { git = 'https://github.com/open-ever/ever-abi.git', tag = '2.8.6' }
 ever_vm = { git = 'https://github.com/open-ever/ever-vm.git', tag = '2.2.27' }
 ever_executor = { git = 'https://github.com/open-ever/ever-executor.git', tag = '1.18.32' }
