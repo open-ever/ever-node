@@ -15,7 +15,7 @@ metrics = '0.21'
 num-derive = '0.4'
 num-traits = '0.2'
 rand = '0.8'
-adnl = { git = 'https://github.com/open-ever/ever-adnl.git', tag = '0.11.40' }
+adnl = { git = 'https://github.com/open-ever/ever-adnl.git', tag = '0.11.41' }
 catchain = { path = '../catchain' }
 ever_block = { git = 'https://github.com/open-ever/ever-block.git', tag = '1.11.23' }
 storage = { path = '../storage' }
