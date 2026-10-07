@@ -636,12 +636,12 @@ impl DynamicBocDb {
         &self.allocated
     }
 
-    fn cells_cf(&self) -> Result<Arc<rocksdb::BoundColumnFamily>> {
+    fn cells_cf(&self) -> Result<Arc<rocksdb::BoundColumnFamily<'_>>> {
         self.db.cf_handle(&self.cells_cf_name)
             .ok_or_else(|| error!("Can't get `{}` cf handle", self.cells_cf_name))
     }
 
-    fn counters_cf(&self) -> Result<Arc<rocksdb::BoundColumnFamily>> {
+    fn counters_cf(&self) -> Result<Arc<rocksdb::BoundColumnFamily<'_>>> {
         self.db.cf_handle(&self.counters_cf_name)
             .ok_or_else(|| error!("Can't get `{}` cf handle", self.counters_cf_name))
     }

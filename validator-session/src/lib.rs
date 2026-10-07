@@ -346,10 +346,10 @@ pub trait Vector<T: Clone + HashableObject + TypeDesc + MovablePoolObject<T> + f
     fn at(&self, index: usize) -> &T;
 
     /// Iterator
-    fn iter(&self) -> std::slice::Iter<T>;
+    fn iter(&self) -> std::slice::Iter<'_, T>;
 
     /// Iterator (avoid rust bug with iter implementation in several traits)
-    fn get_iter(&self) -> std::slice::Iter<T> {
+    fn get_iter(&self) -> std::slice::Iter<'_, T> {
         self.iter()
     }
 
@@ -390,10 +390,10 @@ pub trait VectorWrapper<T: Clone + HashableObject + TypeDesc + MovablePoolObject
     fn at(&self, index: usize) -> &T;
 
     /// Iterator
-    fn iter(&self) -> std::slice::Iter<T>;
+    fn iter(&self) -> std::slice::Iter<'_, T>;
 
     /// Iterator (avoid rust bug with iter implementation in several traits)
-    fn get_iter(&self) -> std::slice::Iter<T> {
+    fn get_iter(&self) -> std::slice::Iter<'_, T> {
         self.iter()
     }
 
@@ -464,10 +464,10 @@ pub trait SortedVector<
     fn at(&self, index: usize) -> &T;
 
     /// Iterator
-    fn iter(&self) -> std::slice::Iter<T>;
+    fn iter(&self) -> std::slice::Iter<'_, T>;
 
     /// Iterator (avoid rust bug with iter implementation in several traits)
-    fn get_iter(&self) -> std::slice::Iter<T> {
+    fn get_iter(&self) -> std::slice::Iter<'_, T> {
         self.iter()
     }
 
@@ -497,10 +497,10 @@ pub trait SortedVectorWrapper<
     fn at(&self, index: usize) -> &T;
 
     /// Iterator
-    fn iter(&self) -> std::slice::Iter<T>;
+    fn iter(&self) -> std::slice::Iter<'_, T>;
 
     /// Iterator (avoid rust bug with iter implementation in several traits)
-    fn get_iter(&self) -> std::slice::Iter<T> {
+    fn get_iter(&self) -> std::slice::Iter<'_, T> {
         self.iter()
     }
 

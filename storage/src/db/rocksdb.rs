@@ -279,7 +279,7 @@ impl RocksDb {
         Ok(())
     }
 
-    fn cf(&self, name: &str) -> Result<Arc<BoundColumnFamily>> {
+    fn cf(&self, name: &str) -> Result<Arc<BoundColumnFamily<'_>>> {
         self.db().cf_handle(name)
             .ok_or_else(|| error!("no handle for column family {} in rocksdb", name))
     }
@@ -307,17 +307,17 @@ impl RocksDb {
         self.db().path().to_str().unwrap()
     }
 
-    fn try_get_raw(&self, key: &[u8]) -> Result<Option<DbSlice>> {
+    fn try_get_raw(&self, key: &[u8]) -> Result<Option<DbSlice<'_>>> {
         let ret = self.db().get_pinned(key)?;
         Ok(ret.map(|value| value.into()))
     }
 
-    pub fn try_get<K: DbKey + Send + Sync>(&self, key: &K) -> Result<Option<DbSlice>> {
+    pub fn try_get<K: DbKey + Send + Sync>(&self, key: &K) -> Result<Option<DbSlice<'_>>> {
         self.try_get_raw(key.key())
     }
 
     /// Gets value from collection by the key
-    pub fn get<K: DbKey + Send + Sync>(&self, key: &K) -> Result<DbSlice> {
+    pub fn get<K: DbKey + Send + Sync>(&self, key: &K) -> Result<DbSlice<'_>> {
         self.try_get(key)?.ok_or_else(|| {
             let meta = self.get_meta();
             let what = if meta.is_empty() {
@@ -392,7 +392,7 @@ impl<K: DbKey + Send + Sync> RocksDbTable<K> {
         Ok(ret)
     }
 
-    fn cf(&self) -> Result<Arc<BoundColumnFamily>> {
+    fn cf(&self) -> Result<Arc<BoundColumnFamily<'_>>> {
         self.db.cf(&self.family)
     }
 
@@ -414,7 +414,7 @@ impl<K: DbKey + Send + Sync> RocksDbTable<K> {
         self.family.as_str()
     }
 
-    pub fn try_get_raw(&self, key: &[u8]) -> Result<Option<DbSlice>> {
+    pub fn try_get_raw(&self, key: &[u8]) -> Result<Option<DbSlice<'_>>> {
         if let Some(lock) = self.db.locks.get(&self.family) {
             let lock = lock.val();
             if lock.fetch_add(1, Ordering::Relaxed) >= 0 {
@@ -511,12 +511,12 @@ impl<K: DbKey + Send + Sync> RocksDbTable<K> {
         self.delete_raw(key.key())
     }
 
-    pub fn try_get(&self, key: &K) -> Result<Option<DbSlice>> {
+    pub fn try_get(&self, key: &K) -> Result<Option<DbSlice<'_>>> {
         self.try_get_raw(key.key())
     }
 
     /// Gets value from collection by the key
-    pub fn get(&self, key: &K) -> Result<DbSlice> {
+    pub fn get(&self, key: &K) -> Result<DbSlice<'_>> {
         self.try_get(key)?.ok_or_else(|| {
             let meta = self.get_meta();
             let what = if meta.is_empty() {
@@ -529,7 +529,7 @@ impl<K: DbKey + Send + Sync> RocksDbTable<K> {
     }
 
     /// Gets slice with given size starting from given offset from collection by the key
-    pub fn get_slice(&self, key: &K, offset: u64, size: u64) -> Result<DbSlice> {
+    pub fn get_slice(&self, key: &K, offset: u64, size: u64) -> Result<DbSlice<'_>> {
         self.get_vec(key, offset, size).map(DbSlice::Vector)
     }
 
@@ -550,7 +550,7 @@ impl<K: DbKey + Send + Sync> RocksDbTable<K> {
         Ok(self.try_get(key)?.is_some())
     }
 
-    pub fn snapshot(&self) -> Result<Arc<RocksDbSnapshot>> {
+    pub fn snapshot(&self) -> Result<Arc<RocksDbSnapshot<'_>>> {
         Ok(Arc::new(RocksDbSnapshot::new(self.db.clone(), self.db.snapshot(), self.family.clone())))
     }
 
@@ -592,20 +592,20 @@ impl<'db> RocksDbSnapshot<'db> {
         ""
     }
 
-    fn cf(&self) -> Result<Arc<BoundColumnFamily>> {
+    fn cf(&self) -> Result<Arc<BoundColumnFamily<'_>>> {
         self.db.cf(&self.family)
     }
 
-    fn try_get_raw(&self, key: &[u8]) -> Result<Option<DbSlice>> {
+    fn try_get_raw(&self, key: &[u8]) -> Result<Option<DbSlice<'_>>> {
         Ok(self.snapshot.get_cf(&self.cf()?, key)?.map(|value| value.into()))
     }
 
-    fn try_get<K: DbKey + Send + Sync>(&self, key: &K) -> Result<Option<DbSlice>> {
+    fn try_get<K: DbKey + Send + Sync>(&self, key: &K) -> Result<Option<DbSlice<'_>>> {
         self.try_get_raw(key.key())
     }
 
     /// Gets value from collection by the key
-    pub fn get<K: DbKey + Send + Sync>(&self, key: &K) -> Result<DbSlice> {
+    pub fn get<K: DbKey + Send + Sync>(&self, key: &K) -> Result<DbSlice<'_>> {
         self.try_get(key)?.ok_or_else(|| {
             let meta = self.get_meta();
             let what = if meta.is_empty() {
@@ -651,7 +651,7 @@ impl RocksDbTransaction {
             family,
         }
     }
-    fn cf(&self) -> Result<Arc<BoundColumnFamily>> {
+    fn cf(&self) -> Result<Arc<BoundColumnFamily<'_>>> {
         self.db.cf(&self.family)
     }
 

@@ -134,7 +134,7 @@ where
         &self.data[index]
     }
 
-    fn iter(&self) -> std::slice::Iter<T> {
+    fn iter(&self) -> std::slice::Iter<'_, T> {
         self.data.iter()
     }
 
@@ -249,7 +249,7 @@ where
         Iterator
     */
 
-    fn iter(&self) -> std::slice::Iter<T> {
+    fn iter(&self) -> std::slice::Iter<'_, T> {
         match &self {
             Some(ref src) => src.iter(),
             _ => [].iter(),
@@ -610,7 +610,7 @@ where
         &self.data[index]
     }
 
-    fn iter(&self) -> std::slice::Iter<T> {
+    fn iter(&self) -> std::slice::Iter<'_, T> {
         self.data.iter()
     }
 
@@ -674,7 +674,7 @@ where
         Iterator
     */
 
-    fn iter(&self) -> std::slice::Iter<T> {
+    fn iter(&self) -> std::slice::Iter<'_, T> {
         match &self {
             Some(ref src) => src.iter(),
             _ => [].iter(),

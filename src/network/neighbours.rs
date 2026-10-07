@@ -538,7 +538,7 @@ impl Neighbours {
             if unr <= FAIL_UNRELIABILITY {
                 if node_stat * 1.2 < peer_stat {
                     if fines_points > 0 {
-                        let _ = neighbour.fines_points.fetch_update(
+                        let _ = neighbour.fines_points.try_update(
                             Ordering::Relaxed,
                             Ordering::Relaxed,
                             |x| if x > 0 {

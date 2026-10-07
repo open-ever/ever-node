@@ -12,6 +12,7 @@ All notable changes to this project will be documented in this file.
 - Added limit of incoming lite server packet size (`max_packet_size`, 16 MB by default).
 - Updated `adnl` (`open-ever/ever-adnl`) to 0.11.43 including up-to-date adnl fixes.
 - Added index of applied blocks by LT for `getTransactions`, cleaned with archives.
+- Fixed compiler warnings (deprecated `fetch_update`, hidden elided lifetimes, stale `fast_finality` cfg).
 
 ## Version 0.60.11
 

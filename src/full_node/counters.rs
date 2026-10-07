@@ -44,7 +44,7 @@ impl TpsCounter {
             ).expect("Can't return error");
         }
 
-        if self.gc_counter.fetch_update(
+        if self.gc_counter.try_update(
             Ordering::Relaxed,
             Ordering::Relaxed,
             |c| if c >= CLEAR_STAT_INTERVAL_BLOCKS { Some(0) } else { Some(c + 1) } 

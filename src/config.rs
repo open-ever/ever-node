@@ -1900,7 +1900,7 @@ impl ValidatorKeys {
                     &self.index, 
                     key.election_id, 
                     |_| {
-                        if let Err(prev) = self.first.fetch_update(
+                        if let Err(prev) = self.first.try_update(
                             atomic::Ordering::Relaxed, 
                             atomic::Ordering::Relaxed, 
                             |x| {
