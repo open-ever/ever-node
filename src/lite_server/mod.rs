@@ -2,10 +2,6 @@ mod handler;
 mod proof;
 mod run_method;
 
-// #[cfg(test)]
-// #[path = "../tests/test_lite_server.rs"]
-// mod tests;
-
 use crate::engine_traits::EngineOperations;
 use handler::QueryHandler;
 

@@ -1,10 +1,6 @@
 use crate::{db_impl_base, traits::Serializable};
 use ever_block::{AccountIdPrefixFull, BlockIdExt, Result, ShardIdent, MAX_SPLIT_DEPTH};
 
-// #[cfg(test)]
-// #[path = "tests/test_lt_index_db.rs"]
-// mod tests;
-
 // Applied blocks indexed by (workchain, shard, start_lt)
 db_impl_base!(LtIndexDb, Vec<u8>);
 
