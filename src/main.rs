@@ -42,12 +42,12 @@ mod shard_blocks;
 
 use crate::{
     config::TonNodeConfig, engine::{Engine, Stopper, EngineFlags},
-    internal_db::restore::set_graceful_termination,
-    validating_utils::supported_version
+    internal_db::restore::set_graceful_termination
 };
 #[cfg(feature = "external_db")]
 use crate::engine_traits::ExternalDb;
 
+use clap::Parser;
 use std::sync::Arc;
 #[cfg(target_os = "linux")]
 use std::os::raw::c_void;
@@ -249,58 +249,6 @@ fn init_logger<T: AsRef<std::path::Path>>(log_config_path: Option<T>) {
     }
 }
 
-static NOT_SET_LABEL: &str = "Not set";
-
-fn get_version() -> String {
-    format!(
-        "Execute {:?}\n\
-        BLOCK_VERSION: {:?}\n\
-        COMMIT_ID: {:?}\n\
-        BUILD_DATE: {:?}\n\
-        COMMIT_DATE: {:?}\n\
-        GIT_BRANCH: {:?}\n\
-        RUST_VERSION:{}\n",
-        std::option_env!("CARGO_PKG_VERSION").unwrap_or(NOT_SET_LABEL),
-        supported_version(), 
-        std::option_env!("BUILD_GIT_COMMIT").unwrap_or(NOT_SET_LABEL),
-        std::option_env!("BUILD_TIME").unwrap_or(NOT_SET_LABEL),
-        std::option_env!("BUILD_GIT_DATE").unwrap_or(NOT_SET_LABEL),
-        std::option_env!("BUILD_GIT_BRANCH").unwrap_or(NOT_SET_LABEL),
-        std::option_env!("BUILD_RUST_VERSION").unwrap_or(NOT_SET_LABEL),
-    )
-}
-
-fn get_build_info() -> String {
-    let mut info = String::new();
-    info += &format!(
-        "EVER Node, version {}\n\
-        Rust: {}\n\
-        EVER NODE git commit:         {}\n\
-        ADNL git commit:             {}\n\
-        EVER_BLOCK git commit:        {}\n\
-        EVER_BLOCK_JSON git commit:   {}\n\
-        EVER_EXECUTOR git commit:     {}\n\
-        TON_TL git commit:           {}\n\
-        EVER_VM git commit:           {}\n",
-        std::option_env!("CARGO_PKG_VERSION").unwrap_or(NOT_SET_LABEL),
-        std::option_env!("BUILD_RUST_VERSION").unwrap_or(NOT_SET_LABEL),
-        std::option_env!("BUILD_GIT_COMMIT").unwrap_or(NOT_SET_LABEL),
-        adnl::build_commit().unwrap_or(NOT_SET_LABEL),
-        ever_block::build_commit().unwrap_or(NOT_SET_LABEL),
-        ever_block_json::build_commit().unwrap_or(NOT_SET_LABEL),
-        ever_executor::build_commit().unwrap_or(NOT_SET_LABEL),
-        ton_api::build_commit().unwrap_or(NOT_SET_LABEL),
-        ever_vm::build_commit().unwrap_or(NOT_SET_LABEL),
-    );
-    #[cfg(feature = "slashing")] {
-        info += &format!(
-            "EVER_ABI git commit:     {}\n",
-            ever_abi::build_commit().unwrap_or(NOT_SET_LABEL)
-        );
-    }
-    info
-}
-
 #[cfg(feature = "external_db")]
 fn start_external_db(config: &TonNodeConfig) -> Result<Vec<Arc<dyn ExternalDb>>> {
     let control_id = config.control_server()?.map(|config| *config.server_id());
@@ -324,6 +272,7 @@ async fn start_engine(
 ) -> Result<(Arc<Engine>, tokio::task::JoinHandle<()>)> {
     #[cfg(feature = "external_db")]
     let external_db = start_external_db(&config)?;
+
     crate::engine::run(
         config, 
         zerostate_path, 
@@ -338,82 +287,64 @@ async fn start_engine(
 const CONFIG_NAME: &str = "config.json";
 const DEFAULT_CONFIG_NAME: &str = "default_config.json";
 
-fn check_debug_build() {
-    // check that node built with --release
-    if cfg!(debug_assertions) {
-        println!("!!! WARN: Node was built without --release\n");
-    }
+fn cli_long_version() -> String {
+    let package = env!("CARGO_PKG_VERSION");
+    let block = validating_utils::supported_version();
+    let commit = option_env!("BUILD_GIT_COMMIT").unwrap_or("not set");
+
+    format!("{} (block: v{}, commit: {})", package, block, commit)
+}
+
+#[derive(clap::Parser)]
+#[command(version, long_version = cli_long_version())]
+struct Cli {
+    #[arg(short = 'c', long, default_value = "./")]
+    config: String,
+
+    /// Directory with zerostate files (<file_hash>.boc) to load at boot
+    #[arg(long)]
+    zero_state: Option<String>,
+
+    /// Use console key in json format
+    #[arg(long)]
+    console_key: Option<String>,
+
+    /// Disable key blocks sync on boot, zero state init block will be used instead
+    #[arg(long)]
+    initial_sync_disabled: bool,
+
+    /// Disable downloading starting block for sync, proof will be used instead
+    #[arg(long)]
+    starting_block_disabled: bool,
+
+    /// Start check and restore db process forcedly with refilling cells database
+    #[arg(long)]
+    force_check_db: bool,
+
+    /// Finish the process after config file processing (reading or generating)
+    #[arg(long, verbatim_doc_comment)]
+    process_conf_and_exit: bool,
 }
 
 fn main() {
-    check_debug_build();
-
     #[cfg(target_os = "linux")]
     check_tcmalloc();
 
-    println!("{}", get_build_info());
-    let version = get_version();
-    println!("{}", version);
-
-    let app = clap::App::new("TON node")
-        .arg(clap::Arg::with_name("zerostate")
-            .short("z")
-            .long("zerostate")
-            .value_name("zerostate"))
-        .arg(clap::Arg::with_name("config")
-            .short("c")
-            .long("configs")
-            .value_name("config")
-            .default_value("./"))
-        .arg(clap::Arg::with_name("console_key")
-            .short("k")
-            .long("ckey")
-            .value_name("console_key")
-            .help("use console key in json format"))
-        .arg(clap::Arg::with_name("initial_sync_disabled")
-            .short("i")
-            .long("initial-sync-disabled")
-            .help("use this flag to sync from zero_state"))
-        .arg(clap::Arg::with_name("starting_block_disabled")
-            .short("b")
-            .long("starting-block-disabled")
-            .help("use this flag to disable downloading starting block for sync. proof will be used instead"))
-        .arg(clap::Arg::with_name("force_check_db")
-            .short("f")
-            .long("force-check-db")
-            .help("start check & restore db process forcedly with refilling cells database"))
-        .arg(clap::Arg::with_name("process_conf_and_exit")
-            .long("process-conf-and-exit")
-            .help("finish node after config file processing (reading or generating)."));
-
-    let matches = app.get_matches();
+    let cli = Cli::parse();
 
     let flags = EngineFlags {
-        initial_sync_disabled: matches.is_present("initial_sync_disabled"),
-        starting_block_disabled: matches.is_present("starting_block_disabled"),
-        force_check_db: matches.is_present("force_check_db"),
-    };
-    let process_conf_and_exit = matches.is_present("process_conf_and_exit");
-
-    let config_dir_path = match matches.value_of("config") {
-        Some(config) => {
-            config
-        }
-        None => {
-            println!("Can't load config: config dir is not set!");
-            return;
-        }
+        initial_sync_disabled: cli.initial_sync_disabled,
+        starting_block_disabled: cli.starting_block_disabled,
+        force_check_db: cli.force_check_db,
     };
 
-    let console_key = matches.value_of("console_key").map(|console_key| console_key.to_string());
-
-    let zerostate_path = matches.value_of("zerostate");
+    let zerostate_path = cli.zero_state;
     let config = match TonNodeConfig::from_file(
-        config_dir_path, 
-        CONFIG_NAME, 
+        &cli.config,
+        CONFIG_NAME,
         None,
         DEFAULT_CONFIG_NAME,
-        console_key
+        cli.console_key
     ) {
         Err(e) => {
             println!("Can't load config: {:?}", e);
@@ -422,16 +353,16 @@ fn main() {
         Ok(c) => c
     };
 
-    if process_conf_and_exit {
+    if cli.process_conf_and_exit {
         println!("Finish node because of --process-conf-and-exit flag is set");
         return;
     }
 
     init_logger(config.log_config_path());
-    log::info!("{}", version);
 
     #[cfg(feature = "statsd")]
     engine::init_statsd_exporter();
+
     #[cfg(feature = "prometheus")]
     engine::init_prometheus_exporter();
 
@@ -440,6 +371,7 @@ fn main() {
         .thread_stack_size(8 * 1024 * 1024)
         .build()
         .expect("Can't create Engine tokio runtime");
+
     let validator_runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .thread_stack_size(8 * 1024 * 1024)
@@ -496,6 +428,7 @@ fn main() {
 
     let stopper = Arc::new(Stopper::new());
     let stopper_ctrl_c = stopper.clone();
+
     ctrlc::set_handler(move || {
         log::warn!("Got SIGINT, starting node's safe stopping...");
         stopper_ctrl_c.set_stop();
@@ -503,10 +436,11 @@ fn main() {
 
     let validator_rt_handle = validator_runtime.handle().clone();
     let db_dir = config.internal_db_path().to_string();
+
     runtime.block_on(async move {
         match start_engine(
             config, 
-            zerostate_path, 
+            zerostate_path.as_deref(), 
             validator_rt_handle,
             flags,
             stopper.clone(),

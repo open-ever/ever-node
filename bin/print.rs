@@ -11,6 +11,7 @@
 * limitations under the License.
 */
 
+use clap::Parser;
 use ever_block::{
     error, read_boc, Account, Block, BlockIdExt, ConfigParams, Deserializable, HashmapAugType, McShardRecord, Result, ShardStateUnsplit
 };
@@ -79,61 +80,46 @@ fn get_block_id(db: &InternalDb, id: &str) -> Result<BlockIdExt> {
     }
 }
 
+#[derive(clap::Parser)]
+#[command(version)]
+struct Cli {
+    /// path to DB
+    #[arg(short, long, default_value = "node_db")]
+    path: String,
+
+    /// print block
+    #[arg(short, long)]
+    block: Option<String>,
+
+    /// print state
+    #[arg(short, long)]
+    state: Option<String>,
+
+    /// shard ids from master with seqno
+    #[arg(short = 'r', long)]
+    shards: Option<String>,
+
+    /// print all accounts from all shards of workchains and masterchain
+    /// for last applied state
+    #[arg(long = "accounts")]
+    last_accounts: bool,
+
+    /// print containtment of bag of cells
+    #[arg(short = 'c', long)]
+    boc: Option<String>,
+
+    /// print brief info
+    /// (block without messages and transactions, state without accounts)
+    #[arg(short = 'i', long)]
+    brief: bool,
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
-    let args = clap::App::new(env!("CARGO_PKG_NAME"))
-        .version(env!("CARGO_PKG_VERSION"))
-        .arg(clap::Arg::with_name("PATH")
-            .short("p")
-            .long("path")
-            .help("path to DB")
-            .takes_value(true)
-            .default_value("node_db")
-            .number_of_values(1))
-        .arg(clap::Arg::with_name("BLOCK")
-            .short("b")
-            .long("block")
-            .help("print block")
-            .takes_value(true)
-            .number_of_values(1))
-        .arg(clap::Arg::with_name("STATE")
-            .short("s")
-            .long("state")
-            .help("print state")
-            .takes_value(true)
-            .number_of_values(1))
-        .arg(clap::Arg::with_name("SHARDS")
-            .short("r")
-            .long("shards")
-            .help("shard ids from master with seqno")
-            .takes_value(true)
-            .number_of_values(1))
-        .arg(clap::Arg::with_name("LAST_ACCOUNTS")
-            .long("accounts")
-            .takes_value(false)
-            .help(
-                "print all accounts from all shards of workchains and masterchain \
-                for last applied state"
-            )
-        )
-        .arg(clap::Arg::with_name("BOC")
-            .short("c")
-            .long("boc")
-            .help("print containtment of bag of cells")
-            .takes_value(true)
-            .number_of_values(1))
-        .arg(clap::Arg::with_name("BRIEF")
-            .short("i")
-            .long("brief")
-            .help(
-                "print brief info \
-                (block without messages and transactions, state without accounts)"
-            )
-         )
-        .get_matches();
+    let args = Cli::parse();
 
-    let brief = args.is_present("BRIEF");
-    if let Some(path) = args.value_of("BOC") {
+    let brief = args.brief;
+    if let Some(path) = args.boc {
         let bytes = std::fs::read(path)?;
         let res = read_boc(&bytes)?;
         println!("{:?}", res.header);
@@ -156,9 +142,9 @@ async fn main() -> Result<()> {
             }
             println!("{}", debug_account(account)?);
         }
-    } else if let Some(db_dir) = args.value_of("PATH") {
+    } else {
         let db_config = InternalDbConfig { 
-            db_directory: db_dir.to_string(), 
+            db_directory: args.path, 
             ..Default::default()
         };
         let db = InternalDb::with_update(
@@ -172,19 +158,23 @@ async fn main() -> Result<()> {
             create_engine_telemetry(),
             create_engine_allocated(),
         ).await?;
-        if let Some(block_id) = args.value_of("BLOCK") {
-            let block_id = get_block_id(&db, block_id)?;
+
+        if let Some(block_id) = args.block {
+            let block_id = get_block_id(&db, &block_id)?;
             print_db_block(&db, block_id, brief).await?;
         }
-        if let Some(block_id) = args.value_of("STATE") {
-            let block_id = get_block_id(&db, block_id)?;
+
+        if let Some(block_id) = args.state {
+            let block_id = get_block_id(&db, &block_id)?;
             print_db_state(&db, block_id, brief).await?;
         }
-        if let Some(block_id) = args.value_of("SHARDS") {
-            let block_id = get_block_id(&db, block_id)?;
+
+        if let Some(block_id) = args.shards {
+            let block_id = get_block_id(&db, &block_id)?;
             print_shards(&db, block_id).await?;
         }
-        if args.is_present("LAST_ACCOUNTS") {
+
+        if args.last_accounts {
             let last_mc_id = db
                 .load_full_node_state(LAST_APPLIED_MC_BLOCK)?
                 .ok_or_else(|| error!("no info about last applied mc block"))?;

@@ -11,7 +11,7 @@
 * limitations under the License.
 */
 
-use clap::{Arg, App};
+use clap::Parser;
 use serde_json::{Map, Value};
 use ever_block::{
     base64_encode, ConfigParamEnum, ConfigParam12, Deserializable, HashmapType, MASTERCHAIN_ID,
@@ -104,44 +104,38 @@ fn write_zero_state(mc_zero_state: ShardStateUnsplit) -> Result<()> {
     Ok(())
 }
 
-fn main() {
-    let args = App::new(env!("CARGO_PKG_NAME"))
-        .version(env!("CARGO_PKG_VERSION"))
-        .arg(Arg::with_name("INPUT")
-            .short("i")
-            .long("input")
-            .help("input json filename with masterchain zerostate")
-            .required(true)
-            .default_value("zero_state.json")
-            .takes_value(true)
-            .number_of_values(1))
-        .arg(Arg::with_name("CONFIG")
-            .short("c")
-            .long("config")
-            .help("config TVC filename to get its code")
-            .takes_value(true)
-            .number_of_values(1))
-        .arg(Arg::with_name("ELECTOR")
-            .short("e")
-            .long("elector")
-            .help("elector TVC filename to get its code and data")
-            .takes_value(true)
-            .number_of_values(1))
-        .get_matches();
+#[derive(Parser)]
+#[command(version)]
+struct Cli {
+    /// input json filename with masterchain zerostate
+    #[arg(short, long, default_value = "zero_state.json")]
+    input: String,
 
-    let file_name = args.value_of("INPUT").expect("required set for INPUT");
-    let json = std::fs::read_to_string(file_name).unwrap();
+    /// config TVC filename to get its code
+    #[arg(short, long)]
+    config: Option<String>,
+
+    /// elector TVC filename to get its code and data
+    #[arg(short, long)]
+    elector: Option<String>,
+}
+
+fn main() {
+    let args = Cli::parse();
+
+    let json = std::fs::read_to_string(&args.input).unwrap();
     let mut mc_zero_state = import_zerostate(&json).unwrap();
-    let config_code = if let Some(file_name) = args.value_of("CONFIG") {
-        let state_init = StateInit::construct_from_file(file_name)
+    let config_code = if let Some(file_name) = args.config {
+        let state_init = StateInit::construct_from_file(&file_name)
             .unwrap_or_else(|err| panic!("something wrong with config TVC file {} : {}", file_name, err));
         state_init.code().cloned()
     } else {
         None
     };
+
     mc_zero_state.update_config_smc_with_code(config_code).unwrap();
-    if let Some(file_name) = args.value_of("ELECTOR") {
-        let state_init = StateInit::construct_from_file(file_name)
+    if let Some(file_name) = args.elector {
+        let state_init = StateInit::construct_from_file(&file_name)
             .unwrap_or_else(|err| panic!("something wrong with elector TVC file {} : {}", file_name, err));
         mc_zero_state.update_elector_smc(state_init.code().cloned(), state_init.data().cloned()).unwrap();
     }

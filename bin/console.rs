@@ -14,6 +14,7 @@
 use adnl::{
     common::TaggedTlObject, client::{AdnlClient, AdnlClientConfig, AdnlClientConfigJson}
 };
+use clap::Parser;
 use ever_abi::{Contract, Token, TokenValue, Uint};
 use ever_block::{
     error, fail, AccountStatus, base64_decode, base64_encode, BlockIdExt, BuilderData,
@@ -1099,43 +1100,36 @@ struct AdnlConsoleConfigJson {
     max_factor: Option<f32>
 }
 
+#[derive(clap::Parser)]
+#[command(version)]
+struct Cli {
+    /// config for console
+    #[arg(short = 'C', long, default_value = "console.json")]
+    config: String,
+
+    /// schedule command
+    #[arg(short = 'c', long = "cmd", num_args = 1.., allow_hyphen_values = true)]
+    commands: Option<Vec<String>>,
+
+    /// timeout in batch mode
+    #[arg(short, long)]
+    timeout: Option<u64>,
+
+    /// verbose regim
+    #[arg(long)]
+    verbose: bool,
+
+    /// output in json format
+    #[arg(short, long)]
+    json: bool,
+}
+
 #[tokio::main]
 async fn main() {
     // init_test_log();
-    let args = clap::App::new(env!("CARGO_PKG_NAME"))
-        .version(env!("CARGO_PKG_VERSION"))
-        .arg(clap::Arg::with_name("CONFIG")
-            .short("C")
-            .long("config")
-            .help("config for console")
-            .required(true)
-            .default_value("console.json")
-            .takes_value(true)
-            .number_of_values(1))
-        .arg(clap::Arg::with_name("COMMANDS")
-            .allow_hyphen_values(true)
-            .short("c")
-            .long("cmd")
-            .help("schedule command")
-            .multiple(true)
-            .takes_value(true))
-        .arg(clap::Arg::with_name("TIMEOUT")
-            .short("t")
-            .long("timeout")
-            .help("timeout in batch mode")
-            .takes_value(true)
-            .number_of_values(1))
-        .arg(clap::Arg::with_name("VERBOSE")
-            .long("verbose")
-            .help("verbose regim"))
-        .arg(clap::Arg::with_name("JSON")
-            .short("j")
-            .long("json")
-            .help("output in json format")
-            .takes_value(false))
-        .get_matches();
+    let args = Cli::parse();
 
-    if !args.is_present("JSON") {
+    if !args.json {
         println!(
             "everx-labs console {}\nCOMMIT_ID: {}\nBUILD_DATE: {}\nCOMMIT_DATE: {}\nGIT_BRANCH: {}",
             env!("CARGO_PKG_VERSION"),
@@ -1146,7 +1140,7 @@ async fn main() {
         );
     }
 
-    if args.is_present("VERBOSE") {
+    if args.verbose {
         let encoder_boxed = Box::new(log4rs::encode::pattern::PatternEncoder::new("{m}{n}"));
         let console = log4rs::append::console::ConsoleAppender::builder()
             .encoder(encoder_boxed)
@@ -1158,17 +1152,13 @@ async fn main() {
         log4rs::init_config(config).unwrap();
     }
 
-    let config = args.value_of("CONFIG").expect("required set for config");
-    let config = std::fs::read_to_string(config)
-        .unwrap_or_else(|_| panic!("Can't read config file {}", config));
+    let config = std::fs::read_to_string(&args.config)
+        .unwrap_or_else(|_| panic!("Can't read config file {}", args.config));
     let config = serde_json::from_str(&config).expect("Can't parse config");
-    let timeout = match args.value_of("TIMEOUT") {
-        Some(timeout) => u64::from_str(timeout).expect("timeout must be set in microseconds"),
-        None => 0
-    };
-    let timeout = Duration::from_micros(timeout);
+    let timeout = Duration::from_micros(args.timeout.unwrap_or(0));
     let mut client = ControlClient::connect(config).await.expect("Can't create client");
-    if let Some(commands) = args.values_of("COMMANDS") {
+
+    if let Some(commands) = args.commands {
         // batch mode - call commands and exit
         for command in commands {
             match client.command(command.trim_matches('\"')).await {

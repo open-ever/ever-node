@@ -2768,7 +2768,11 @@ pub async fn run(
     flags: EngineFlags,
     stopper: Arc<Stopper>,
 ) -> Result<(Arc<Engine>, tokio::task::JoinHandle<()>)> {
-    log::info!("Engine::run");
+    log::info!("Engine is starting...");
+
+    if cfg!(debug_assertions) {
+        log::warn!("It is not recommended to run a debug build in production, build with --release")
+    }
 
     #[cfg(feature = "external_db")]
     let consumer_config = node_config.kafka_consumer_config();
