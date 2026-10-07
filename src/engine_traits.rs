@@ -15,6 +15,7 @@ use crate::{
     block::BlockStuff, block_proof::BlockProofStuff, 
     config::{CollatorConfig, CollatorTestBundlesGeneralConfig, TonNodeConfig},
     engine::{now_duration, EngineFlags, SplitQueues}, internal_db::BlockResult,
+    lite_server::LiteServer,
     network::{control::ControlServer, full_node_client::FullNodeOverlayClient},
     shard_state::ShardStateStuff, shard_states_keeper::PinnedShardStateGuard,
     types::top_block_descr::{TopBlockDescrStuff, TopBlockDescrId},
@@ -349,6 +350,9 @@ pub trait EngineOperations : Sync + Send {
         unimplemented!()
     }
     fn find_full_block_id(&self, root_hash: &UInt256) -> Result<Option<BlockIdExt>> {
+        unimplemented!()
+    }
+    fn find_block_by_lt(&self, account: &AccountIdPrefixFull, lt: u64) -> Result<Option<BlockIdExt>> {
         unimplemented!()
     }
     async fn apply_block(
@@ -1048,6 +1052,7 @@ pub trait ExternalDb : Sync + Send {
 
 pub enum Server {
     ControlServer(ControlServer),
+    LiteServer(LiteServer),
     #[cfg(feature = "external_db")]
     KafkaConsumer(stream_cancel::Trigger)
 }

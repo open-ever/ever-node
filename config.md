@@ -67,3 +67,35 @@ Enables participation in validator REMP protocols. Default value is `true`.
 
 * `smft_disabled`: manually disables participation of the node in SMFT protocol even if corresponding network config is set; false by default
 
+`gc` section
+------------
+
+* `enable_for_archives`: possible values `true` and `false`. Enables removing old block archives.
+  Archives are never removed if it is `false` or the whole section is absent.
+
+* `archives_life_time_hours`: how many hours of block history to keep when `enable_for_archives`
+  is `true`. Default value `0`. Archives are removed by whole slices (20000 masterchain blocks) and
+  never past the 4th newest persistent state (one per ~36 hours), which the node needs to boot,
+  so at least about 4.5 days of history are kept whatever the value is.
+
+`lite_server` section
+------------
+
+Optional. Runs a lite server with the API described in `lite_api.tl` over ADNL TCP.
+
+* `enabled`: possible values `true` and `false`. Default value `false`. Enables the service.
+
+* `address`: IP address and port to listen on, for example `"0.0.0.0:3031"`.
+
+* `server_key`: server private key, clients connect with the corresponding public key,
+  for example `{ "type_id": 1209251014, "pvt_key": "<base64>" }`.
+
+* `clients`: `"any"` to allow any client or a list of public keys of allowed clients,
+  for example `{ "list": [ { "type_id": 1209251014, "pub_key": "<base64>" } ] }`.
+
+* `max_packet_size`: limit of incoming packet size in bytes, checked before the packet is read.
+  Default value `16777216` (16 MB).
+
+* `timeouts`: optional read and write timeouts, 20 seconds by default, for example
+  `{ "read": { "secs": 20, "nanos": 0 }, "write": { "secs": 20, "nanos": 0 } }`.
+  Idle connections are closed after the read timeout, clients may keep them alive with `adnl.ping` queries.

@@ -25,8 +25,8 @@ checksum = "aae1277d39aeec15cb388266ecc24b11c80469deae6067e17a1a7aa9e5c1f234"
 
 [[package]]
 name = "adnl"
-version = "0.11.39"
-source = "git+https://github.com/open-ever/ever-adnl.git?tag=0.11.39#6424298a3e4380c8b722c411a6c4f87243c1441e"
+version = "0.11.43"
+source = "git+https://github.com/open-ever/ever-adnl.git?tag=0.11.43#74b5dd7ce014a4512d419acf9b89087dcf64e314"
 dependencies = [
  "aes-ctr",
  "anyhow",
@@ -2999,7 +2999,7 @@ dependencies = [
 [[package]]
 name = "raptor-q"
 version = "1.7.0"
-source = "git+https://github.com/open-ever/ever-adnl.git?tag=0.11.39#6424298a3e4380c8b722c411a6c4f87243c1441e"
+source = "git+https://github.com/open-ever/ever-adnl.git?tag=0.11.43#74b5dd7ce014a4512d419acf9b89087dcf64e314"
 
 [[package]]
 name = "raw-cpuid"

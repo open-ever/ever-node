@@ -24,6 +24,7 @@ mod error;
 mod external_db;
 mod full_node;
 mod internal_db;
+mod lite_server;
 mod macros;
 mod network;
 mod rng;

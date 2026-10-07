@@ -18,7 +18,7 @@ quanta = '0.11'
 rand = '0.8'
 regex = '1.10'
 tokio = { features = [ 'rt-multi-thread' ], version = '1.40' }
-adnl = { features = [ 'node' ], git = 'https://github.com/open-ever/ever-adnl.git', tag = '0.11.39' }
+adnl = { features = [ 'node' ], git = 'https://github.com/open-ever/ever-adnl.git', tag = '0.11.43' }
 ever_block = { git = 'https://github.com/open-ever/ever-block.git', tag = '1.11.23' }
 storage = { path = '../storage' }
 ton_api = { git = 'https://github.com/open-ever/ever-tl.git', package = 'ton_api', tag = '0.4.34' }
@@ -31,4 +31,3 @@ rocksdb = '0.22'
 [features]
 default = [  ]
 export_key = [ 'ever_block/export_key' ]
-

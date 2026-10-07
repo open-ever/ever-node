@@ -19,6 +19,7 @@ pub mod catchain_persistent_db;
 pub mod db;
 pub mod dynamic_boc_rc_db;
 pub mod error;
+pub mod lt_index_db;
 mod macros;
 pub mod shardstate_db_async;
 pub mod traits;

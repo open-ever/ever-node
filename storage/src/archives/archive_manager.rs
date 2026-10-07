@@ -338,6 +338,11 @@ impl ArchiveManager {
         fd.archive_slice().get_slice(archive_id, offset, limit).await
     }
 
+    /// Blocks with lower masterchain seqno are not stored in the archives
+    pub async fn first_block_mc_seq_no(&self) -> Option<u32> {
+        self.file_maps.files().first_mc_seq_no().await
+    }
+
     pub async fn gc(&self, last_unneeded_key_block: &BlockIdExt) {
         if let Err(e) = self.file_maps.files().gc(last_unneeded_key_block).await {
             log::info!(target: "storage", "archive_manager gc is error: {:?}", e);

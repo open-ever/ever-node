@@ -4,10 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
-- Switched all git dependencies from to `open-ever`
-- Switched the `common` submodule to `open-ever/common`
-- Bumped the Rust toolchain to the latest stable release (1.99.0)
-- Adapted the `catchain` to support the up-to-date `adnl` package
+- Switched all necessary git dependencies to `open-ever` repositories.
+- Switched the `common` submodule to `open-ever/common`.
+- Bumped the Rust toolchain to the latest stable release (1.99.0).
+- Adapted the `catchain` to support the up-to-date `adnl` package.
+- Added ADNL TCP lite server implementation with the API from `lite_api.tl` - `sendMessage`, `getAccountState`, `runSmcMethod`, `getOneTransaction` and `getTransactions`. Enabled by the `lite_server` config section.
+- Added limit of incoming lite server packet size (`max_packet_size`, 16 MB by default).
+- Updated `adnl` (`open-ever/ever-adnl`) to 0.11.43 including up-to-date adnl fixes.
+- Added index of applied blocks by LT for `getTransactions`, cleaned with archives.
 
 ## Version 0.60.11
 

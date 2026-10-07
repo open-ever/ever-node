@@ -262,6 +262,10 @@ impl EngineOperations for Engine {
         self.db().find_full_block_id(root_hash)
     }
 
+    fn find_block_by_lt(&self, account: &AccountIdPrefixFull, lt: u64) -> Result<Option<BlockIdExt>> {
+        self.db().find_block_by_lt(account, lt)
+    }
+
     async fn load_last_applied_mc_block(&self) -> Result<BlockStuff> {
         match self.load_last_applied_mc_block_id()? {
             Some(block_id) => {
