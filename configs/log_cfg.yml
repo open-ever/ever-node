@@ -1,0 +1,122 @@
+#
+# ever-node production logging template (log4rs 1.4).
+# Copy next to config.json and reference it via "log_config_name".
+#
+
+refresh_rate: 30 seconds
+
+appenders:
+  stdout:
+    kind: console
+    encoder:
+      pattern: "{d(%Y-%m-%d %H:%M:%S.%f)} {l} [{h({t})}] {I}: {m}{n}"
+
+  stdout_ref:
+    kind: console
+    encoder:
+      pattern: "{f}:{L} {l} [{h({t})}] {I}: {m}{n}"
+
+  rolling_logfile:
+    kind: rolling_file
+    encoder:
+      pattern: "{d(%Y-%m-%d %H:%M:%S.%f)} {l} [{h({t})}] {I}: {m}{n}"
+    path: /ton-node/logs/output.log
+    policy:
+      kind: compound
+      trigger:
+        kind: size
+        limit: 1 gb
+      roller:
+        kind: fixed_window
+        pattern: '/ton-node/logs/output_{}.log'
+        base: 1
+        count: 20
+
+  telemetry_logfile:
+    kind: rolling_file
+    encoder:
+      pattern: "{d(%Y-%m-%d %H:%M:%S.%f)} {l}: {m}{n}"
+    path: /ton-node/logs/telemetry.log
+    policy:
+      kind: compound
+      trigger:
+        kind: size
+        limit: 256 mb
+      roller:
+        kind: fixed_window
+        pattern: '/ton-node/logs/telemetry_{}.log'
+        base: 1
+        count: 4
+
+root:
+  level: error
+  appenders:
+    - rolling_logfile
+
+loggers:
+  # node messages
+  ever_node:
+    level: info
+  boot:
+    level: info
+  sync:
+    level: info
+
+  # network (adnl crate)
+  adnl:
+    level: error
+  adnl_query:
+    level: error
+  overlay:
+    level: error
+  overlay_broadcast:
+    level: error
+  rldp:
+    level: warn
+  dht:
+    level: error
+
+  # block / execution
+  ever_block:
+    level: error
+  executor:
+    level: off
+  tvm:
+    level: off
+
+  # external_db feature only
+  librdkafka:
+    level: error
+
+  # validation
+  validator:
+    level: info
+  # info prints a session table on every masterchain block
+  validator_manager:
+    level: warn
+  validate_query:
+    level: info
+  remp:
+    level: warn
+  verificator:
+    level: warn
+  # slashing feature only
+  slashing:
+    level: info
+  catchain:
+    level: info
+  catchain_network:
+    level: info
+  validator_session:
+    level: info
+
+  ext_messages:
+    level: info
+  storage:
+    level: info
+
+  telemetry:
+    level: debug
+    appenders:
+      - telemetry_logfile
+    additive: false

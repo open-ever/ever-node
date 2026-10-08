@@ -1,0 +1,73 @@
+#
+# ever-node debug logging template (log4rs 1.4), everything to stdout.
+#
+
+refresh_rate: 5 seconds
+
+appenders:
+  stdout:
+    kind: console
+    encoder:
+      pattern: "{d(%Y-%m-%d %H:%M:%S.%f)} {l} [{h({t})}] {I}: {m}{n}"
+
+root:
+  level: error
+  appenders:
+    - stdout
+
+loggers:
+  ever_node:
+    level: debug
+  boot:
+    level: info
+  sync:
+    level: info
+
+  adnl:
+    level: debug
+  adnl_query:
+    level: info
+  overlay:
+    level: debug
+  overlay_broadcast:
+    level: info
+  rldp:
+    level: debug
+  dht:
+    level: debug
+
+  ever_block:
+    level: error
+  executor:
+    level: off
+  tvm:
+    level: off
+  librdkafka:
+    level: off
+
+  validator:
+    level: info
+  validator_manager:
+    level: debug
+  validate_query:
+    level: info
+  remp:
+    level: debug
+  verificator:
+    level: debug
+  slashing:
+    level: debug
+  catchain:
+    level: info
+  catchain_network:
+    level: debug
+  validator_session:
+    level: info
+
+  ext_messages:
+    level: debug
+  storage:
+    level: info
+
+  telemetry:
+    level: debug

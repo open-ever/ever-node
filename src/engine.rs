@@ -82,8 +82,6 @@ use std::{
     ops::Deref, sync::{Arc, atomic::{AtomicBool, AtomicU8, AtomicU32, Ordering, AtomicU64, AtomicI32}},
     time::{Duration, SystemTime}, collections::{HashMap, HashSet}, path::Path
 };
-#[cfg(feature = "telemetry")]
-use std::fmt::Write;
 use storage::{StorageAlloc, block_handle_db::BlockHandle};
 #[cfg(feature = "telemetry")]
 use storage::{StorageTelemetry, types::StorageCell};
@@ -1590,65 +1588,67 @@ impl Engine {
     }
 
     #[cfg(feature = "telemetry")]
-    fn log_workers_stats(&self) -> Result<()> {
+    fn log_workers_stats(&self) {
         // Node workers stats:
-        //                  seqno      diff    gen utime  diff    root hash                                        file hash   
+        //                  seqno      diff    gen utime  diff    root hash                                        file hash
         // mc client        14000000      0    1682084115    1    000000000000000000000000000000000000000000000000 000000000000000000000000000000000000000000000000
         // "{:<17} {:>10} {:>7} {:>10} {:>7} {:<64} {:<64}"
 
         let now = self.now();
-        let mut report = String::default();
-        writeln!(&mut report,
-            "Node workers stats:\n{:<17} {:>10} {:>7} {:>10} {:>7} {:<64} {:<64}", 
+        let mut report = string_builder::Builder::default();
+        report.append(format!(
+            "Node workers stats:\n{:<17} {:>10} {:>7} {:>10} {:>7} {:<64} {:<64}\n",
             "", "seqno", "diff", "gen utime", "diff", "root hash", "file hash"
-        )?;
+        ));
         let mut mc_seqno = None;
 
-        let mut log_worker_stat = |
-            result: Result<Option<Arc<BlockIdExt>>>,
-            name: &str 
-        | -> Result<()> {
-            write!(report, "{:<17} ", name)?;
+        let mut log_worker_stat = |result: Result<Option<Arc<BlockIdExt>>>, name: &str| {
+            report.append(format!("{:<17} ", name));
+
             match result {
                 Ok(Some(block_id)) => {
                     // seqno
-                    write!(report, "{:>10} ", block_id.seq_no())?;
+                    report.append(format!("{:>10} ", block_id.seq_no()));
+
                     // seqno diff
                     if let Some(mc_seqno) = mc_seqno.as_ref() {
                         let diff = *mc_seqno - block_id.seq_no();
-                        write!(report, "{:>7} ", diff)?;
+                        report.append(format!("{:>7} ", diff));
                     } else {
-                        write!(report, "{:>7} ", "")?;
+                        report.append(format!("{:>7} ", ""));
                         mc_seqno = Some(block_id.seq_no());
                     }
+
                     // timestamp, timediff
                     match self.load_block_handle(&block_id) {
                         Ok(Some(handle)) => {
                             let utime = handle.gen_utime().unwrap_or_default();
-                            write!(report, "{:>10} {:>7} ", utime, now - utime)?
+                            report.append(format!("{:>10} {:>7} ", utime, now - utime))
                         }
-                        Ok(None) => write!(report, "handle is none     ")?,
-                        Err(_) => write!(report, "can't load handle  ")?,
+                        Ok(None) => report.append("handle is none     "),
+                        Err(_) => report.append("can't load handle  "),
                     };
+
                     // hashes
-                    write!(report, "{:<64x} {:<64x}", block_id.root_hash(), block_id.file_hash())?
+                    report.append(format!("{:<64x} {:<64x}", block_id.root_hash(), block_id.file_hash()))
                 }
-                Ok(None) => write!(report, "none")?,
-                Err(e) => write!(report, "can't load id: {}", e)?,
+                Ok(None) => report.append("none"),
+                Err(e) => report.append(format!("can't load id: {}", e)),
             };
-            report.push('\n');
-            Ok(())
+
+            report.append("\n");
         };
 
-        log_worker_stat(self.load_last_applied_mc_block_id(), "mc client")?;
-        log_worker_stat(self.load_shard_client_mc_block_id(), "shard client")?;
-        log_worker_stat(self.load_pss_keeper_mc_block_id(), "pss keeper")?;
-        log_worker_stat(self.load_archives_gc_mc_block_id(), "archives gc")?;
-        log_worker_stat(self.load_last_rotation_block_id(), "last rotation")?;
+        log_worker_stat(self.load_last_applied_mc_block_id(), "mc client");
+        log_worker_stat(self.load_shard_client_mc_block_id(), "shard client");
+        log_worker_stat(self.load_pss_keeper_mc_block_id(), "pss keeper");
+        log_worker_stat(self.load_archives_gc_mc_block_id(), "archives gc");
+        log_worker_stat(self.load_last_rotation_block_id(), "last rotation");
         #[cfg(feature = "external_db")]
-        log_worker_stat(self.load_external_db_mc_block_id(), "external db")?;
-        log::info!("{}", report);
-        Ok(())
+        log_worker_stat(self.load_external_db_mc_block_id(), "external db");
+
+        let report = report.string().expect("unexpected error while building workers stats report");
+        log::debug!(target: "telemetry", "{}", report);
     }
 
     async fn listen_broadcasts(self: Arc<Self>, shard_ident: ShardIdent, mask: u32) -> Result<()> {
@@ -1695,7 +1695,10 @@ impl Engine {
                                 self.clone().process_mesh_update_broadcast(_broadcast, src);
                             }
                             Broadcast::TonNode_BlockCandidateBroadcast(broadcast) => {
-                                log::warn!("TonNode_BlockCandidateBroadcast from {}: {:?}", src, broadcast);
+                                log::debug!(
+                                    "TonNode_BlockCandidateBroadcast from {}: block {}, data {} bytes, collated data {} bytes", 
+                                    src, broadcast.id, broadcast.data.len(), broadcast.collated_data.len()
+                                );
                             }
                         }
                     }
@@ -3084,53 +3087,32 @@ fn telemetry_logger(engine: Arc<Engine>) {
                     log::error!("Can't calc tps for {}sec period: {}", period, e);
                     0
                 });
-            log::debug!(
-                target: "telemetry",
-                "Full node's telemetry:\n{}",
-                engine.full_node_telemetry().report(tps_1, tps_2)
-            );
-            log::debug!(
-                target: "telemetry",
-                "Collator's telemetry:\n{}",
-                engine.collator_telemetry().report()
-            );
-            log::debug!(
-                target: "telemetry",
-                "Validator's telemetry:\n{}",
-                engine.validator_telemetry().report()
-            );
-            log::debug!(
-                target: "telemetry",
-                "Full node service's telemetry:\n{}",
-                engine.full_node_service_telemetry().report(Engine::TIMEOUT_TELEMETRY_SEC)
-            );
-            log::debug!(
-                target: "telemetry",
-                "Full node client's telemetry:\n{}",
-                engine.network.telemetry().report(Engine::TIMEOUT_TELEMETRY_SEC)
-            );
-            log::debug!(
-                target: "telemetry",
-                "Full node neighbours's telemetry:",
-            );
+
+            let report = engine.full_node_telemetry().report(tps_1, tps_2);
+            log::debug!(target: "telemetry", "Full node's telemetry:\n{}", report);
+            let report = engine.collator_telemetry().report();
+            log::debug!(target: "telemetry", "Collator's telemetry:\n{}", report);
+            let report = engine.validator_telemetry().report();
+            log::debug!(target: "telemetry", "Validator's telemetry:\n{}", report);
+            let report = engine.full_node_service_telemetry().report(Engine::TIMEOUT_TELEMETRY_SEC);
+            log::debug!(target: "telemetry", "Full node service's telemetry:\n{}", report);
+            let report = engine.network.telemetry().report(Engine::TIMEOUT_TELEMETRY_SEC);
+            log::debug!(target: "telemetry", "Full node client's telemetry:\n{}", report);
+            log::debug!(target: "telemetry", "Full node neighbours's telemetry:");
+
             engine.network.log_neighbors_stat();
+
             if engine.remp_client.is_some() {
-                log::debug!(
-                    target: "telemetry",
-                    "Remp client's telemetry:\n{}",
-                    engine.remp_client_telemetry().report()
-                );
+                let report = engine.remp_client_telemetry().report();
+                log::debug!(target: "telemetry", "Remp client's telemetry:\n{}", report);
             }
+
             if engine.remp_service().is_some() {
-                log::debug!(
-                    target: "telemetry",
-                    "Remp core's telemetry:\n{}",
-                    engine.remp_core_telemetry().report()
-                );
+                let report = engine.remp_core_telemetry().report();
+                log::debug!(target: "telemetry", "Remp core's telemetry:\n{}", report);
             }
-            if let Err(e) = engine.log_workers_stats() {
-                log::warn!("Can't log workers stats: {}", e);
-            }
+
+            engine.log_workers_stats();
         }
     });
 }

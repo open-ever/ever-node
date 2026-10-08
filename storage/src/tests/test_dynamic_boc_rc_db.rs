@@ -77,7 +77,7 @@ async fn test_dynamic_boc_rc_db() -> Result<()> {
 #[tokio::test(flavor = "multi_thread")]
 async fn test_dynamic_boc_rc_db_2() -> Result<()> {
 
-    init_log("../common/config/log_cfg_debug.yml");
+    init_log("../configs/log_cfg_debug.yml");
     println!();
 
     const DB_NAME: &str = "test_dynamic_boc_rc_db_2";

@@ -777,7 +777,7 @@ impl NodeNetwork {
         for val in validators {
             match DhtNode::find_address_in_network(dht, &val.adnl_id, None).await {
                 Ok(Some((addr, key))) => {
-                    log::info!("addr found: {:?}, key: {:x?}", &addr, &key);
+                    log::debug!("addr found: {:?}, key id: {}", &addr, key.id());
                     match full_node_callback {
                         Some(ref callback) => {
                             adnl.add_peer(&local_adnl_id, &addr, &Arc::new(key))?;
@@ -1227,7 +1227,7 @@ impl PrivateOverlayOperations for NodeNetwork {
             )?;
             match self.network_context.dht.fetch_address_of_network(&val.adnl_id, None).await {
                 Ok(Some((addr, key))) => {
-                    log::info!("addr: {:?}, key: {:x?}", &addr, &key);
+                    log::debug!("addr: {:?}, key id: {}", &addr, key.id());
                     peers.push((addr, key));
                 },
                 Ok(None) => {

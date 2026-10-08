@@ -464,7 +464,7 @@ impl CatchainOverlayListener for WorkchainListener {
                                         return;
                                     }
                                     broadcast => {
-                                        warn!(target: "verificator", "Unexpected broadcast subtype received in verification workchain's #{} private overlay {}: {:?}", workchain_id, node_debug_id, broadcast);
+                                        warn!(target: "verificator", "Unexpected broadcast subtype received in verification workchain's #{} private overlay {}: {:?}", workchain_id, node_debug_id, ton_api::BoxedSerialize::serialize_boxed(&broadcast).0);
                                     }
                                 }
 
@@ -476,7 +476,7 @@ impl CatchainOverlayListener for WorkchainListener {
                         warn!(target: "verificator", "Unexpected broadcast received in verification workchain's #{} private overlay {}: {:?}", workchain_id, node_debug_id, broadcast);
                     }
                     Err(err) => {
-                        warn!(target: "verificator", "Can't parse broadcast received from {} in verification workchain's #{} private overlay {}: {:?}: {:?}", source_key_hash, workchain_id, node_debug_id, data.data(), err);
+                        warn!(target: "verificator", "Can't parse broadcast received from {} in verification workchain's #{} private overlay {}: {} bytes: {:?}", source_key_hash, workchain_id, node_debug_id, data.data().len(), err);
                     }
                 }
             });

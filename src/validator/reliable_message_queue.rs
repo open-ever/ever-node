@@ -1336,7 +1336,7 @@ impl RmqQueueManager {
                             cnt_rejected_overload+=1;
                         }
                         else if let Err(e) = self.put_message_to_rmq(msg.clone()).await {
-                            log::warn!(target: "remp", "Point 3. Error sending RMQ {} message {:?}: {}; returning back to incoming queue",
+                            log::warn!(target: "remp", "Point 3. Error sending RMQ {} message {}: {}; returning back to incoming queue",
                                 self, msg, e
                             );
                             self.remp_manager.return_to_incoming(msg, &self.shard).await;

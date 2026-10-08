@@ -500,7 +500,11 @@ impl CatchainOverlay for CatchainClient {
                     &msg,
                     max_answer_size
                 ).await;
-                log::info!(target: Self::TARGET, "send_query_via_rldp: {:?}", result);
+                log::debug!(
+                    target: Self::TARGET, 
+                    "send_query_via_rldp: answer size {:?}", 
+                    result.as_ref().map(|answer| answer.data().len())
+                );
                 response_callback(result);
             }
         );

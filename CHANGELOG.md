@@ -14,6 +14,12 @@ All notable changes to this project will be documented in this file.
 - Added index of applied blocks by LT for `getTransactions`, cleaned with archives.
 - Fixed compiler warnings (deprecated `fetch_update`, hidden elided lifetimes, stale `fast_finality` cfg).
 - Updated `clap` to 4.6 and migrated the `ever-node` and `console`/`print`/`zerostate` CLIs to derive based parsing. May break CLIs backward compatibility.
+- Moved log config templates to `configs/log_cfg.yml` and `configs/log_cfg_debug.yml`.
+- New log template defaults - 1 GB x 20 rotation and telemetry in a separate `telemetry.log`.
+- Reduced log noise, boot logs key block download progress every 10 s, peer-supplied payloads are no longer dumped.
+- Log config is validated at startup with fallback to stdout, panics and start/stop/version messages are logged, `ever-node` exits with status 1 on startup failures.
+- Default build no longer logs the validator session private key (use `--features export_key` for log replay).
+- Telemetry counters are reset regardless of the log level, added backoff to master block apply retries.
 
 ## Version 0.60.11
 

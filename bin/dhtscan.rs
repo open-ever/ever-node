@@ -18,8 +18,6 @@ use std::{collections::HashMap, env, fs::File, io::BufReader, ops::Deref, sync::
 use ever_node::config::TonNodeGlobalConfigJson;
 use ever_block::{error, fail, base64_encode, KeyOption, Result};
 
-include!("../common/src/test.rs");
-
 const IP: &str = "0.0.0.0:4191";
 const KEY_TAG: usize = 1;
 
@@ -208,7 +206,9 @@ fn main() {
         println!("Usage: dhtscan [--jsonl] [--overlay] [--workchain0] <path-to-global-config>");
         return
     };
-    init_log("./common/config/log_cfg.yml");
+
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
+
     scan(&config, jsonl, overlay, workchain0).unwrap_or_else(
         |e| println!("DHT scanning error: {}", e)
     )

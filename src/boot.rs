@@ -17,7 +17,7 @@ use crate::{
 };
 
 use std::collections::HashSet;
-use std::{ops::Deref, sync::Arc, time::Duration};
+use std::{ops::Deref, sync::Arc, time::{Duration, Instant}};
 use std::path::Path;
 use storage::block_handle_db::BlockHandle;
 use ever_block::{BlockIdExt, ShardIdent, SHARD_FULL};
@@ -152,15 +152,21 @@ async fn get_key_blocks(
     mut prev_block_proof: Option<BlockProofStuff>
 ) -> Result<Vec<Arc<BlockHandle>>> {
     const MAX_RETRIES: usize = 100;
+    const PROGRESS_PERIOD: Duration = Duration::from_secs(10);
+
     let mut hardfork_iter = engine.hardforks().iter();
     let mut hardfork = hardfork_iter.next();
     let mut key_blocks = vec!(handle.clone());
     let mut stuck_count = 0;
+    let mut last_progress = Instant::now();
+
     'main_loop: loop {
         if engine.check_stop() {
             fail!("Boot was stopped");
         }
-        log::info!(target: "boot", "download_next_key_blocks_ids {}", handle.id());
+
+        log::debug!(target: "boot", "download_next_key_blocks_ids {}", handle.id());
+
         // this information is not trusted
         let ids = match engine.download_next_key_blocks_ids(0, handle.id()).await {
             Err(err) => {
@@ -170,7 +176,7 @@ async fn get_key_blocks(
             Ok(ids) => {
                 if let Some(block_id) = ids.last() {
                     stuck_count = 0;
-                    log::info!(target: "boot", "last key block is {}", block_id);
+                    log::debug!(target: "boot", "last key block is {}", block_id);
                     ids
                 } else {
                     stuck_count += 1;
@@ -190,6 +196,7 @@ async fn get_key_blocks(
                 }
             }
         };
+
         for block_id in &ids {
             if block_id.seq_no() == 0 {
                 log::warn!("somebody sent next key block with zero state {}", block_id);
@@ -240,16 +247,31 @@ async fn get_key_blocks(
                 }
             }
         }
+
         if let Some(handle) = key_blocks.last() {
             let utime = handle.gen_utime()?;
-            log::info!(target: "boot", "id: {}, utime: {}, now: {}", handle.id(), utime, engine.now());
+
+            log::debug!(target: "boot", "id: {}, utime: {}, now: {}", handle.id(), utime, engine.now());
+
             CHECK!(utime != 0);
             CHECK!(utime < engine.now());
+
             if
                 (engine.sync_blocks_before() > engine.now() - utime)
                 || (2 * engine.key_block_utime_step() > engine.now() - utime)
             {
+                log::info!(target: "boot", "Got {} key blocks, last is {}", key_blocks.len(), handle.id());
                 return Ok(key_blocks)
+            }
+
+            if last_progress.elapsed() >= PROGRESS_PERIOD {
+                last_progress = Instant::now();
+
+                log::info!(
+                    target: "boot", 
+                    "Downloading key blocks: got {}, last seq_no {}, {} sec behind", 
+                    key_blocks.len(), handle.id().seq_no(), engine.now() - utime
+                );
             }
         }
     }

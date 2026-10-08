@@ -128,7 +128,7 @@ async fn main() -> Result<()> {
     let update = 5_000;
     let updates = 500;
 
-    init_log("../common/config/log_cfg_debug.yml");
+    init_log("../configs/log_cfg_debug.yml");
 
     const DB_NAME: &str = "bench_shardstate_db";
 

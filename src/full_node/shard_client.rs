@@ -95,6 +95,10 @@ async fn load_master_blocks_cycle(
                     e
                 );
                 attempt += 1;
+
+                // avoid a busy loop flooding the log
+                tokio::time::sleep(Duration::from_millis(100 * std::cmp::min(attempt, 50))).await;
+
                 // TODO make method to ban bad peer who gave bad block
                 continue;
             }

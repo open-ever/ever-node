@@ -53,7 +53,7 @@ impl AllowStateGcResolver for MockedResolver {
 #[tokio::test(flavor = "multi_thread")]
 async fn test_shardstate_db_async() -> Result<()> {
 
-    init_log("../common/config/log_cfg_debug.yml");
+    init_log("../configs/log_cfg_debug.yml");
 
     const DB_NAME: &str = "test_shardstate_db_async";
 
@@ -150,7 +150,7 @@ async fn test_shardstate_db_migration() -> Result<()> {
 
     std::env::set_var("RUST_BACKTRACE", "full");
 
-    init_log("../common/config/log_cfg_debug.yml");
+    init_log("../configs/log_cfg_debug.yml");
 
     const DB_NAME: &str = "shardstate_db_v5";
 

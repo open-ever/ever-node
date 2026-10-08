@@ -215,17 +215,34 @@ static GLOBAL: TracingAllocator = TracingAllocator {
     overhead: AtomicU64::new(0)
 };
 
-fn init_logger<T: AsRef<std::path::Path>>(log_config_path: Option<T>) {
+fn init_logger_from_file(path: &std::path::Path) -> Result<()> {
+    let config = log4rs::config::load_config_file(path, Default::default())?;
 
+    let has_node_appenders = config.loggers().iter().any(
+        |logger| logger.name() == env!("CARGO_CRATE_NAME") && !logger.appenders().is_empty()
+    );
+
+    if config.root().appenders().is_empty() && !has_node_appenders {
+        ever_block::fail!("no usable appenders for node messages (see log4rs errors above)")
+    }
+
+    drop(config); // Close the files opened while validating
+    log4rs::init_file(path, Default::default())
+}
+
+fn init_logger<T: AsRef<std::path::Path>>(log_config_path: Option<T>) {
     if let Some(path) = log_config_path {
-        if let Err(err) = log4rs::init_file(path, Default::default()) {
-            println!("Error while initializing log by {}: {}", err, err);
-        } else {
-            return;
+        let path = path.as_ref();
+        match init_logger_from_file(path) {
+            Ok(()) => return,
+            Err(err) => eprintln!(
+                "Can't init log from {}: {:#}. Falling back to stdout logging at INFO level",
+                path.display(), err
+            )
         }
     }
 
-    let level = log::LevelFilter::Info; 
+    let level = log::LevelFilter::Info;
     let stdout = log4rs::append::console::ConsoleAppender::builder()
         .target(log4rs::append::console::Target::Stdout)
         .build();
@@ -245,8 +262,39 @@ fn init_logger<T: AsRef<std::path::Path>>(log_config_path: Option<T>) {
 
     let result = log4rs::init_config(config);
     if let Err(e) = result {
-        println!("Error init log: {}", e);
+        eprintln!("Error init log: {}", e);
     }
+}
+
+const PANIC_LOG_THREAD: &str = "panic-log";
+
+fn set_panic_hook() {
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        default_hook(info);
+        let thread = std::thread::current();
+
+        if thread.name() == Some(PANIC_LOG_THREAD) {
+            return
+        }
+
+        let thread_name = thread.name().unwrap_or("<unnamed>");
+        let backtrace = std::backtrace::Backtrace::force_capture();
+        let msg = format!("thread '{}' {}\n{}", thread_name, info, backtrace);
+
+        let (sender, receiver) = std::sync::mpsc::channel();
+
+        let spawned = std::thread::Builder::new()
+            .name(PANIC_LOG_THREAD.to_string())
+            .spawn(move || {
+                log::error!(target: "panic", "{}", msg);
+                sender.send(()).ok();
+            });
+
+        if spawned.is_ok() {
+            receiver.recv_timeout(std::time::Duration::from_secs(1)).ok();
+        }
+    }));
 }
 
 #[cfg(feature = "external_db")]
@@ -339,6 +387,7 @@ fn main() {
     };
 
     let zerostate_path = cli.zero_state;
+
     let config = match TonNodeConfig::from_file(
         &cli.config,
         CONFIG_NAME,
@@ -347,8 +396,8 @@ fn main() {
         cli.console_key
     ) {
         Err(e) => {
-            println!("Can't load config: {:?}", e);
-            return;
+            eprintln!("Can't load config: {:?}", e);
+            std::process::exit(1);
         },
         Ok(c) => c
     };
@@ -359,6 +408,9 @@ fn main() {
     }
 
     init_logger(config.log_config_path());
+    set_panic_hook();
+
+    log::info!(target: "boot", "Starting ever-node {}", cli_long_version());
 
     #[cfg(feature = "statsd")]
     engine::init_statsd_exporter();
@@ -430,37 +482,44 @@ fn main() {
     let stopper_ctrl_c = stopper.clone();
 
     ctrlc::set_handler(move || {
-        log::warn!("Got SIGINT, starting node's safe stopping...");
+        log::warn!(target: "boot", "Got termination signal, starting node's safe stopping...");
         stopper_ctrl_c.set_stop();
     }).expect("Error setting termination signals handler");
 
     let validator_rt_handle = validator_runtime.handle().clone();
     let db_dir = config.internal_db_path().to_string();
 
-    runtime.block_on(async move {
+    let failed = runtime.block_on(async move {
         match start_engine(
-            config, 
-            zerostate_path.as_deref(), 
+            config,
+            zerostate_path.as_deref(),
             validator_rt_handle,
             flags,
             stopper.clone(),
         ).await {
             Err(e) => {
                 if stopper.check_stop() {
-                    log::warn!("Node stopped ({})", e);
+                    log::warn!(target: "boot", "Node stopped ({})", e);
                     set_graceful_termination(&db_dir);
+                    false
                 } else {
-                    log::error!("Can't start node's Engine: {:?}", e);
+                    log::error!(target: "boot", "Can't start node's Engine: {:?}", e);
+                    true
                 }
             }
             Ok((engine, join_handle)) => {
                 join_handle.await.ok();
 
-                log::warn!("Still safe stopping node...");
+                log::warn!(target: "boot", "Still safe stopping node...");
                 engine.wait_stop().await;
-                log::warn!("Node stopped");
+                log::warn!(target: "boot", "Node stopped");
                 set_graceful_termination(&db_dir);
+                false
             }
         }
     });
+
+    if failed {
+        std::process::exit(1);
+    }
 }

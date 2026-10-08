@@ -1,5 +1,5 @@
 {
-    "log_config_name": "../common/config/log_cfg_debug.yml",
+    "log_config_name": "../configs/log_cfg_debug.yml",
     "ton_global_config_name": "../configs/ton-global.config-mainet-test.json",
     "internal_db_path": "target/node_db",
     "ip_address": "0.0.0.0:30303",

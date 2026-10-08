@@ -835,7 +835,10 @@ impl FullNodeOverlayService {
                             answer
                         }
                         Err(e) => {
-                            log::warn!("consume_query: consumed {}, error {:?}", query_str, e);
+                            log::warn!(
+                                "consume_query: consumed {}, error {:?}", 
+                                std::any::type_name::<Q>(), e
+                            );
                             #[cfg(feature = "telemetry")]
                             self.engine.full_node_service_telemetry().consumed_query(
                                 query_str, false, now.elapsed(), 0

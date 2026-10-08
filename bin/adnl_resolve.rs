@@ -17,8 +17,6 @@ use std::{convert::TryInto, env, fs::File, io::BufReader};
 use ever_node::config::TonNodeGlobalConfigJson;
 use ever_block::{error, fail, base64_decode, KeyId, Result};
 
-include!("../common/src/test.rs");
-
 const IP: &str = "0.0.0.0:4191";
 const KEY_TAG: usize = 1;
 
@@ -100,7 +98,9 @@ async fn main() {
         println!("Usage: adnl_resolve <adnl-id> <path-to-global-config>");
         return
     };
-    init_log("./common/config/log_cfg.yml");
+
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
+
     if let Err(e) = scan(args[1].as_str(), args[2].as_str()).await {
         println!("ADNL resolving error: {}", e)
     }
