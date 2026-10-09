@@ -56,7 +56,7 @@ use ever_block::{
     generate_test_account_by_init_code_hash, Message, Serializable, ShardIdent
 };
 use ever_block::{
-    error, fail, base64_encode, Ed25519KeyOption, KeyId, KeyOption, Result, UInt256
+    error, fail, base64_encode, KeyId, Result, UInt256
 };
 
 // key pair for server
