@@ -15,7 +15,7 @@ use crate::{
     block::{BlockIdExtExtention, BlockKind, BlockStuff},
     block_proof::BlockProofStuff, boot,
     config::{
-        CollatorConfig, CollatorTestBundlesGeneralConfig, TonNodeConfig, ValidatorManagerConfig
+        CollatorConfig, CollatorTestBundlesGeneralConfig, NodeConfig, ValidatorManagerConfig
     },
     engine_traits::{
         EngineAlloc, EngineOperations, OverlayOperations, PrivateOverlayOperations, Server
@@ -29,6 +29,7 @@ use crate::{
     internal_db::{
         InternalDb, InternalDbConfig, ARCHIVES_GC_BLOCK, INITIAL_MC_BLOCK, LAST_APPLIED_MC_BLOCK, PSS_KEEPER_MC_BLOCK
     },
+    keystore::Keystore,
     lite_server::LiteServer,
     network::{
         control::{ControlServer, DataSource, StatusReporter},
@@ -71,8 +72,8 @@ use adnl::common::Subscriber;
 use adnl::telemetry::{Metric, MetricBuilder, TelemetryItem, TelemetryPrinter};
 use catchain::SessionId;
 use ever_block::{
-    error, fail, BASE_WORKCHAIN_ID, BlockIdExt, GlobalCapabilities, KeyId, MASTERCHAIN_ID, 
-    OutMsgQueue, Result, SHARD_FULL, ShardIdent, UInt256
+    error, fail, base64_encode, BASE_WORKCHAIN_ID, BlockIdExt, GlobalCapabilities, KeyId,
+    MASTERCHAIN_ID, OutMsgQueue, Result, SHARD_FULL, ShardIdent, UInt256
 };
 #[cfg(feature = "slashing")]
 use ever_block::{CryptoSignaturePair, Deserializable, HashmapType};
@@ -595,7 +596,8 @@ impl Engine {
     const TIMEOUT_TELEMETRY_SEC: u64 = 30;
 
     pub async fn new(
-        general_config: TonNodeConfig, 
+        general_config: NodeConfig, 
+        keystore: Arc<Keystore>,
         #[cfg(feature = "external_db")]
         ext_db: Vec<Arc<dyn ExternalDb>>, 
         flags: EngineFlags,
@@ -680,7 +682,8 @@ impl Engine {
             cells_gc_interval_sec: general_config.cells_gc_config().gc_interval_sec,
             cells_db_config: cells_db_config.clone(),
         };
-        let control_config = general_config.control_server()?;
+        let control_config =
+            general_config.control_server(keystore.snapshot().control_server_key.clone())?;
         let collator_config = general_config.collator_config().clone();
         let boot_from_zerostate = general_config.boot_from_zerostate();
         let global_config = general_config.load_global_config()?;
@@ -689,11 +692,13 @@ impl Engine {
 
         let network = NodeNetwork::new(
             general_config,
+            keystore.clone(),
             stopper.token.clone(),
             #[cfg(feature = "telemetry")]
             engine_telemetry.clone(),
             engine_allocated.clone()
         ).await?;
+
         network.start().await?;
 
         let (status_reporter, status_server) = if let Some(control_config) = control_config {
@@ -706,9 +711,9 @@ impl Engine {
             let status_server = ControlServer::with_params(
                 control_config,
                 DataSource::Status(status_reporter.clone()),
+                keystore,
                 network.config_handler(),
-                network.config_handler(),
-                Some(&network)
+                Some(network.clone())
             ).await?;
             (Some(status_reporter), Some(status_server))
         } else {
@@ -2763,7 +2768,8 @@ pub struct EngineFlags {
 }
 
 pub async fn run(
-    node_config: TonNodeConfig,
+    node_config: NodeConfig,
+    keystore: Arc<Keystore>,
     zerostate_path: Option<&str>, 
     #[cfg(feature = "external_db")]
     ext_db: Vec<Arc<dyn ExternalDb>>,
@@ -2779,8 +2785,9 @@ pub async fn run(
 
     #[cfg(feature = "external_db")]
     let consumer_config = node_config.kafka_consumer_config();
-    let control_server_config = node_config.control_server()?;
-    let lite_server_config = node_config.lite_server()?;
+    let snapshot = keystore.snapshot();
+    let control_server_config = node_config.control_server(snapshot.control_server_key.clone())?;
+    let lite_server_config = node_config.lite_server(snapshot.lite_server_key.clone())?;
     let remp_config = node_config.remp_config().clone();
     let vm_config = ValidatorManagerConfig::read_configs(
         node_config.unsafe_catchain_patches_files(),
@@ -2796,6 +2803,7 @@ pub async fn run(
     // Create engine
     let engine = Engine::new(
         node_config, 
+        keystore,
         #[cfg(feature = "external_db")]
         ext_db, 
         flags, 
@@ -2810,19 +2818,23 @@ pub async fn run(
         // Console service - run first to allow console to connect to generate new keys
         // while node is looking for net
         if let Some(config) = control_server_config {
+            let key = base64_encode(snapshot.control_server_key.pub_key()?);
+            log::info!("Control server public key: {}", key);
             let server = Server::ControlServer(
                 ControlServer::with_params(
                     config,
                     DataSource::Engine(engine.clone()),
+                    engine.network().keystore().clone(),
                     engine.network().config_handler(),
-                    engine.network().config_handler(),
-                    Some(engine.network())
+                    Some(engine.network.clone())
                 ).await?
             );
             engine.register_server(server)
         };
 
         if let Some(config) = lite_server_config {
+            let key = base64_encode(snapshot.lite_server_key.pub_key()?);
+            log::info!("Lite server public key: {}", key);
             let server = LiteServer::start(config, engine.clone()).await?;
             engine.register_server(Server::LiteServer(server))
         }

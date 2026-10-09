@@ -9,11 +9,12 @@ All notable changes to this project will be documented in this file.
 - Switched the `common` submodule to `open-ever/common`.
 - Bumped the Rust toolchain to the latest stable release (1.99.0).
 - Adapted the `catchain` to support the up-to-date `adnl` package.
+- Updated `ever-tl` (`open-ever/ever-tl`) to 0.4.35 and `ever-block-json` (`open-ever/ever-block-json`) to 0.9.43, which uses it.
 
 *2) Lite server implementation:*
 - Added ADNL TCP lite server implementation with the API from `lite_api.tl` - `sendMessage`, `getAccountState`, `runSmcMethod`, `getOneTransaction` and `getTransactions`. Enabled by the `lite_server` config section.
 - Added limit of incoming lite server packet size (`max_packet_size`, 16 MB by default).
-- Updated `adnl` (`open-ever/ever-adnl`) to 0.11.43 including up-to-date adnl fixes.
+- Updated `adnl` (`open-ever/ever-adnl`) to 0.11.45 including up-to-date adnl fixes.
 - Added index of applied blocks by LT for `getTransactions`, cleaned with archives.
 
 *3) Compiler warnings fix:*
@@ -27,6 +28,21 @@ All notable changes to this project will be documented in this file.
 - Log config is validated at startup with fallback to stdout, panics and start/stop/version messages are logged, `ever-node` exits with status 1 on startup failures.
 - Default build no longer logs the validator session private key (use `--features export_key` for log replay).
 - Telemetry counters are reset regardless of the log level, added backoff to master block apply retries.
+
+*5) Keystore, storage of private keys:*
+- All private keys moved from `config.json` to `keystore.json`, which the node creates and writes atomically: validator keys, DHT and public overlay keys, control and lite server keys.
+- The node manages validator keys itself: a signing key per election and two validator ADNL keys used in turn, so consecutive rounds never share an ADNL address. Keys of finished elections are removed.
+
+*6) Control server API and console CLI:*
+- Control API: new `engine.validator.prepareElectionBid` (ever-tl 0.4.35) returns the validator public key, ADNL address and signed stake message of an election. The key management queries are removed (`generateKeyPair`, `generateBlsKeyPair`, `exportPublicKey`, `sign`, `addAdnlId`, `addValidatorPermanentKey`, `addValidatorTempKey`, `addValidatorAdnlAddress`, `addValidatorBlsKey`). Unsupported queries get an error answer instead of a closed connection.
+- Console CLI: `election-bid <election-id> <max-factor> <address>` prints the validator public key, ADNL address and stake message as JSON and `wallet_id` and `max_factor` are no longer read from the console config. Banner, errors and logs go to stderr. The key management commands are removed (`newkey`, `exportpub`, `sign`, `addpermkey`, `addtempkey`, `addvalidatoraddr`, `addadnl`, `addblskey`).
+
+*7) Node json configuration setup:*
+- `config.json` is renamed to `node.config.json`, its `ton_global_config_name` to `global_config_name`, and `console_config.json` to `console.config.json`.
+- `default_config.json` is no longer read: a missing `node.config.json` is written with built-in defaults.
+- A new `node.config.json` allows a console key the node generates, and `console.config.json` gets its private key in the console's own format, so `console -C console.config.json` works right away. `--console-key` allows your own key instead.
+- `control_server` and `lite_server` share one format: `enabled`, `address`, `clients`, `max_packet_size` (16 MB) and `timeouts`. A server runs only when its section has `"enabled": true`; a new `node.config.json` has the control server enabled and the lite server disabled. Each server logs its public key at start.
+- `node.config.json` is written atomically.
 
 ## Version 0.60.11
 

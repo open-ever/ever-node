@@ -12,10 +12,15 @@
 */
 
 use crate::{
-    collator_test_bundle::CollatorTestBundle, config::{KeyRing, NodeConfigHandler},
-    engine_traits::EngineOperations, engine::Engine, network::node_network::NodeNetwork,
-    shard_states_keeper::PinnedShardStateGuard, 
-    validator::validator_utils::validatordescr_to_catchain_node,
+    collator_test_bundle::CollatorTestBundle, config::NodeConfigHandler,
+    engine_traits::EngineOperations, engine::Engine,
+    keystore::Keystore,
+    network::node_network::NodeNetwork,
+    shard_states_keeper::PinnedShardStateGuard,
+    validator::{
+        election_bid::{self, MaxFactor}, election_keys::{self, ChainView},
+        validator_utils::validatordescr_to_catchain_node
+    },
     validating_utils::{supported_version, supported_capabilities}
 };
 
@@ -27,9 +32,9 @@ use std::sync::Arc;
 use ton_api::{
     deserialize_boxed, IntoBoxed,
     ton::{
-        self, PublicKey, TLObject, accountaddress::AccountAddress,
+        self, TLObject, accountaddress::AccountAddress,
         engine::validator::{
-            keyhash::KeyHash, onestat::OneStat, signature::Signature, stats::Stats, Success
+            onestat::OneStat, preparedelectionbid::PreparedElectionBid, stats::Stats, Success
         },
         lite_server::configinfo::ConfigInfo,
         raw::{
@@ -41,16 +46,14 @@ use ton_api::{
             AppliedShardsInfo as AppliedShardsInfoBoxed
         },
         rpc::engine::validator::{
-            AddAdnlId, AddValidatorAdnlAddress, AddValidatorPermanentKey, AddValidatorTempKey,
-            AddValidatorBlsKey, GenerateBlsKeyPair,
-            ControlQuery, ExportPublicKey, GenerateKeyPair, Sign, GetBundle, GetFutureBundle
+            ControlQuery, GetBundle, GetFutureBundle, PrepareElectionBid
         }
     }
 };
 use ever_block::{
-    error, fail, AccountId, BlockIdExt, BlsKeyOption, Ed25519KeyOption, KeyId, MASTERCHAIN_ID,
+    error, fail, AccountId, BlockIdExt, KeyId, MASTERCHAIN_ID,
     MerkleProof, MsgAddressInt, read_single_root_boc, Result, Serializable, ShardIdent, 
-    ShardAccount, UInt256
+    ShardAccount, UInt256, ValidatorDescr
 };
 use ever_block_json::serialize_config_param;
 
@@ -62,20 +65,20 @@ impl ControlServer {
     pub async fn with_params(
         config: AdnlServerConfig,
         data_source: DataSource,
-        key_ring: Arc<dyn KeyRing>,
+        keystore: Arc<Keystore>,
         node_config: Arc<NodeConfigHandler>,
-        network: Option<&NodeNetwork>
+        network: Option<Arc<NodeNetwork>>
     ) -> Result<Self> {
-        let ret = Self {
-            adnl: AdnlServer::listen(
-                config,
-                vec![
-                    Arc::new(
-                        ControlQuerySubscriber::new(data_source, key_ring, node_config, network)?
-                    )
-                ]
-            ).await?
-        };
+        let subscriber = ControlQuerySubscriber::new(
+            data_source,
+            keystore,
+            node_config,
+            network
+        )?;
+
+        let subscriber = Arc::new(subscriber);
+        let ret = Self { adnl: AdnlServer::listen(config, vec![subscriber]).await? };
+
         Ok(ret)
     }
     pub async fn shutdown(self) {
@@ -94,30 +97,33 @@ pub enum DataSource {
 
 struct ControlQuerySubscriber {
     data_source: DataSource,
-    key_ring: Arc<dyn KeyRing>,
+    keystore: Arc<Keystore>,
     config: Arc<NodeConfigHandler>,
+    network: Option<Arc<NodeNetwork>>,
     public_overlay_adnl_id: Option<Arc<KeyId>>
 }
 
 impl ControlQuerySubscriber {
-
     fn new(
         data_source: DataSource,
-        key_ring: Arc<dyn KeyRing>,
+        keystore: Arc<Keystore>,
         config: Arc<NodeConfigHandler>,
-        network: Option<&NodeNetwork>,
+        network: Option<Arc<NodeNetwork>>,
     ) -> Result<Self> {
-        let key_id = if let Some (network) = network {
+        let key_id = if let Some (network) = &network {
             Some(network.get_key_id_by_tag(NodeNetwork::TAG_OVERLAY_KEY)?)
         } else {
             None
         };
+
         let ret = Self {
             data_source,
-            key_ring,
+            keystore,
             config,
+            network,
             public_overlay_adnl_id: key_id
         };
+
         Ok(ret)
     }
 
@@ -396,12 +402,16 @@ impl ControlQuerySubscriber {
             }
         }
 
-        // in_current_vset_p34
-        let adnl_ids = self.config.get_actual_validator_adnl_ids()?;
+        // in_current_vset_p34: one of our validator keys is in the set
+        let snapshot = self.keystore.snapshot();
+        let is_ours = |val: &ValidatorDescr| {
+            snapshot.election_by_key(val.public_key.pub_key().id()).is_some()
+        };
+
         if let Some(mc_state) = &mc_state {
             let current = mc_state.config_params()?.validator_set()?.list().iter().any(|val| {
                 let catchain_node = validatordescr_to_catchain_node(val);
-                let is_validator = adnl_ids.contains(&catchain_node.adnl_id);
+                let is_validator = is_ours(val);
                 if is_validator {
                     Self::add_stats(&mut stats,
                         "current_vset_p34_adnl_id",
@@ -419,7 +429,7 @@ impl ControlQuerySubscriber {
         if let Some(mc_state) = &mc_state {
             let next = mc_state.config_params()?.next_validator_set()?.list().iter().any(|val| {
                 let catchain_node = validatordescr_to_catchain_node(val);
-                let is_validator = adnl_ids.contains(&catchain_node.adnl_id);
+                let is_validator = is_ours(val);
                 if is_validator {
                     Self::add_stats(&mut stats,
                         "next_vset_p36_adnl_id",
@@ -485,59 +495,37 @@ impl ControlQuerySubscriber {
 
     }
 
-    async fn process_generate_keypair(&self, key_type: i32) -> Result<KeyHash> {
-        let ret = KeyHash {
-            key_hash: UInt256::with_array(self.key_ring.generate(key_type).await?)
+    async fn prepare_election_bid(&self, query: &PrepareElectionBid) -> Result<PreparedElectionBid> {
+        let max_factor = MaxFactor::try_from(query.max_factor)?;
+
+        let state = match &self.data_source {
+            DataSource::Engine(engine) => engine.load_last_applied_mc_state().await.ok(),
+            DataSource::Status(_) => None
         };
-        Ok(ret)
-    }
 
-    fn export_public_key(&self, key_hash: &[u8; 32]) -> Result<PublicKey> {
-        let private = self.key_ring.find(key_hash)?;
-        (&private).try_into()
-    }
+        let chain = state.as_deref().map(ChainView::from_mc_state).transpose()?;
+        let (keystore, election_id) = (self.keystore.clone(), query.election_id);
 
-    fn process_sign_data(&self, key_hash: &[u8; 32], data: &[u8]) -> Result<Signature> {
-        let sign = self.key_ring.sign_data(key_hash, data)?;
-        Ok(Signature {signature: sign})
-    }
+        let election = tokio::task::spawn_blocking(move || {
+            election_keys::get_or_create(&keystore, election_id, chain.as_ref())
+        }).await??;
 
-    async fn add_validator_permanent_key(
-        &self,
-        key_hash: &[u8; 32],
-        election_date: ton::int,
-        _ttl: ton::int
-    ) -> Result<Success> {
-        self.config.add_validator_key(key_hash, election_date).await?;
-        Ok(Success::Engine_Validator_Success)
-    }
+        if let Some(network) = &self.network {
+            network.load_validator_adnl_keys()?;
+        }
 
-    fn add_validator_temp_key(
-        &self,
-        _perm_key_hash: &[u8; 32],
-        _key_hash: &[u8; 32],
-        _ttl: ton::int
-    ) -> Result<Success> {
-        Ok(Success::Engine_Validator_Success)
-    }
+        let stake_message = if state.is_some() {
+            let query_id = crate::engine::now_duration().as_secs();
+            election_bid::stake_message(&election, max_factor, &query.address, query_id)?
+        } else {
+            Vec::new()
+        };
 
-    async fn add_validator_adnl_address(
-        &self,
-        perm_key_hash: &[u8; 32],
-        key_hash: &[u8; 32],
-        _ttl: ton::int
-    ) -> Result<Success> {
-        self.config.add_validator_adnl_key(perm_key_hash, key_hash).await?;
-        Ok(Success::Engine_Validator_Success)
-    }
-
-    async fn add_validator_bls_key(&self, perm_key_hash: &[u8; 32], key_hash: &[u8; 32], _ttl: ton::int) -> Result<Success> {
-        self.config.add_validator_bls_key(perm_key_hash, key_hash).await?;
-        Ok(Success::Engine_Validator_Success)
-    }
-
-    fn add_adnl_address(&self, _key_hash: &[u8; 32], _category: ton::int) -> Result<Success> {
-        Ok(Success::Engine_Validator_Success)
+        Ok(PreparedElectionBid {
+            public_key: UInt256::from_slice(election.key.pub_key()?),
+            adnl_addr: UInt256::with_array(*election.adnl.data()),
+            stake_message
+        })
     }
 
     async fn prepare_bundle(&self, block_id: BlockIdExt) -> Result<Success> {
@@ -569,9 +557,13 @@ impl ControlQuerySubscriber {
         Ok(Success::Engine_Validator_Success)
     }
 
-    fn set_states_gc_interval(&self, interval_ms: u32) -> Result<Success> {
+    async fn set_states_gc_interval(&self, interval_ms: u32) -> Result<Success> {
         self.engine()?.adjust_states_gc_interval(interval_ms);
-        self.config.store_states_gc_interval(interval_ms);
+        let config = self.config.clone();
+
+        tokio::task::spawn_blocking(move || config.store_states_gc_interval(interval_ms)).await?
+            .map_err(|e| error!("states GC interval is applied, but saving it failed: {}", e))?;
+
         Ok(Success::Engine_Validator_Success)
     }
 
@@ -642,80 +634,9 @@ impl ControlQuerySubscriber {
             },
             Err(query) => query
         };
-        let query = match query.downcast::<GenerateKeyPair>() {
-            Ok(_params) => return QueryResult::consume(
-                self.process_generate_keypair(Ed25519KeyOption::KEY_TYPE).await?,
-                #[cfg(feature = "telemetry")]
-                None
-            ),
-            Err(query) => query
-        };
-        let query = match query.downcast::<GenerateBlsKeyPair>() {
-            Ok(_params) => return QueryResult::consume(
-                self.process_generate_keypair(BlsKeyOption::KEY_TYPE).await?,
-                #[cfg(feature = "telemetry")]
-                None
-            ),
-            Err(query) => query
-        };
-        let query = match query.downcast::<ExportPublicKey>() {
+        let query = match query.downcast::<PrepareElectionBid>() {
             Ok(query) => return QueryResult::consume_boxed(
-                self.export_public_key(query.key_hash.as_slice())?,
-                #[cfg(feature = "telemetry")]
-                None
-            ),
-            Err(query) => query
-        };
-        let query = match query.downcast::<Sign>() {
-            Ok(query) => return QueryResult::consume(
-                self.process_sign_data(query.key_hash.as_slice(), &query.data)?,
-                #[cfg(feature = "telemetry")]
-                None
-            ),
-            Err(query) => query
-        };
-        let query = match query.downcast::<AddValidatorPermanentKey>() {
-            Ok(query) => return QueryResult::consume_boxed(
-                self.add_validator_permanent_key(
-                    query.key_hash.as_slice(), query.election_date, query.ttl
-                ).await?,
-                #[cfg(feature = "telemetry")]
-                None
-            ),
-            Err(query) => query
-        };
-        let query = match query.downcast::<AddValidatorTempKey>() {
-            Ok(query) => return QueryResult::consume_boxed(
-                self.add_validator_temp_key(
-                    query.permanent_key_hash.as_slice(), query.key_hash.as_slice(), query.ttl
-                )?,
-                #[cfg(feature = "telemetry")]
-                None
-            ),
-            Err(query) => query
-        };
-        let query = match query.downcast::<AddValidatorAdnlAddress>() {
-            Ok(query) => return QueryResult::consume_boxed(
-                self.add_validator_adnl_address(
-                    query.permanent_key_hash.as_slice(), query.key_hash.as_slice(), query.ttl
-                ).await?,
-                #[cfg(feature = "telemetry")]
-                None
-            ),
-            Err(query) => query
-        };
-        let query = match query.downcast::<AddValidatorBlsKey>() {
-            Ok(query) => return QueryResult::consume_boxed(
-                self.add_validator_bls_key(
-                    query.permanent_key_hash.as_slice(), query.key_hash.as_slice(), query.ttl
-                ).await?,
-                None
-            ),
-            Err(query) => query
-        };
-        let query = match query.downcast::<AddAdnlId>() {
-            Ok(query) => return QueryResult::consume_boxed(
-                self.add_adnl_address(query.key_hash.as_slice(), query.category)?,
+                self.prepare_election_bid(&query).await?.into_boxed(),
                 #[cfg(feature = "telemetry")]
                 None
             ),
@@ -827,7 +748,7 @@ impl ControlQuerySubscriber {
         let query = match query.downcast::<ton::rpc::engine::validator::SetStatesGcInterval>() {
             Ok(query) => {
                 return QueryResult::consume_boxed(
-                    self.set_states_gc_interval(query.interval_ms as u32)?,
+                    self.set_states_gc_interval(query.interval_ms as u32).await?,
                     #[cfg(feature = "telemetry")]
                     None
                 )
@@ -846,7 +767,7 @@ impl ControlQuerySubscriber {
         };
 
         log::warn!("Unsupported ControlQuery (control server): {:?}", query);
-        Ok(QueryResult::Rejected(query))
+        fail!("unsupported control query")
     }
 }
 

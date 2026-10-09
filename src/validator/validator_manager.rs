@@ -1072,7 +1072,7 @@ impl ValidatorManagerImpl {
         if is_remp_enabled(self.engine.clone(), mc_state.config_params()?) && self.remp_manager.is_none() {
             log::error!(target: "validator_manager",
                 "Remp capability is enabled in network config, but remp_manager is not started, network may not work properly. \
-                Check `remp` section of config.json. Currently remp.service_enabled = {}",
+                Check `remp` section of node.config.json. Currently remp.service_enabled = {}",
                 self.remp_config.is_service_enabled()
             );
         }
@@ -1392,26 +1392,24 @@ impl ValidatorManagerImpl {
                             if let Some(utime_since) = 
                                 self.validator_list_status.get_curr_utime_since() 
                             {
-                                log::trace!(target: "verificator", "Request BLS key");
-                                let mut local_bls_key = 
-                                    self.engine.get_validator_bls_key(local_key_id).await;
-                                log::trace!(target: "verificator", "Request BLS key done");
-
                                 let use_debug_bls_keys = if let Ok(smft_params) = config.smft_parameters() {
                                     smft_params.use_debug_bls_keys
                                 } else {
                                     DEFAULT_USE_DEBUG_BLS_KEYS
                                 };
 
-                                if local_bls_key.is_none() && use_debug_bls_keys {
+                                // Validators have no BLS keys of their own, the key is derived from the validator key
+                                let local_bls_key = if use_debug_bls_keys {
                                     match VerificationFactory::generate_test_bls_key(&local_key) {
-                                        Ok(bls_key) => local_bls_key = Some(bls_key),
-                                        Err(err) => log::error!(
-                                            target: "verificator", 
-                                            "Can't generate test BLS key: {:?}", err
-                                        ),
+                                        Ok(bls_key) => Some(bls_key),
+                                        Err(err) => {
+                                            log::error!(target: "verificator", "Can't generate test BLS key: {:?}", err);
+                                            None
+                                        }
                                     }
-                                }
+                                } else {
+                                    None
+                                };
 
                                 match local_bls_key {
                                     Some(local_bls_key) => {
@@ -1731,14 +1729,15 @@ pub fn start_validator_manager(
     config: ValidatorManagerConfig,
     remp_config: RempConfig,
 ) {
-    const CHECK_VALIDATOR_TIMEOUT: u64 = 60;    //secs
     runtime.clone().spawn(async move {
-        log::info!(target: "validator_manager", "checking if current node is a validator during {CHECK_VALIDATOR_TIMEOUT} secs");
         engine.acquire_stop(Engine::MASK_SERVICE_VALIDATOR_MANAGER);
-        while !engine.get_validator_status() {
-            log::trace!(target: "validator_manager", "Not a validator, waiting...");
+
+        // Validation starts only once the keystore has the keys of an election
+        if !engine.has_validator_keys() {
+            log::info!(target: "validator_manager", "No validator keys in the keystore, waiting for them");
             let _ = engine.clear_last_rotation_block_id();
-            for _ in 0..CHECK_VALIDATOR_TIMEOUT {
+
+            while !engine.has_validator_keys() {
                 tokio::time::sleep(Duration::from_secs(1)).await;
                 if engine.check_stop() {
                     log::error!(target: "validator_manager", "Engine is stopped. exiting");

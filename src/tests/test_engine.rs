@@ -12,7 +12,7 @@
 */
 
 use crate::{                                
-    config::TonNodeConfig, engine::{Engine, EngineFlags, run, Stopper}, 
+    config::NodeConfig, engine::{Engine, EngineFlags, run, Stopper}, keystore::{Keystore, KEYSTORE_FILE_NAME},
     test_helper::{configure_ip, get_config, init_test}
 };
 use std::{fs::remove_dir_all, sync::Arc, time::Duration};
@@ -21,7 +21,7 @@ use ever_block::Result;
 fn start_node(
     rt: &tokio::runtime::Runtime,
     stopper: Arc<Stopper>,
-    config: TonNodeConfig
+    config: NodeConfig
 ) -> Result<(Arc<Engine>, tokio::task::JoinHandle<()>)> {
     let validator_rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -34,9 +34,11 @@ fn start_node(
         starting_block_disabled: false,
         force_check_db: false
     };
+    let keystore = Keystore::open_or_create(config.build_config_path(KEYSTORE_FILE_NAME))?;
     rt.block_on(
         run(
             config, 
+            keystore,
             None, 
             #[cfg(feature = "external_db")]
             vec![], 
@@ -51,31 +53,32 @@ fn start_node(
 #[test]
 fn test_node_restart() {
 
-    const CONFIG_FROM_INITBLOCK: &str = "default_config_mainet_initblock_test.json";
-    const CONFIG_FROM_ZEROSTATE: &str = "default_config_mainet_test.json";
+    const GLOBAL_CONFIG_FROM_INITBLOCK: &str = "../configs/ton-global.config-mainet-initblock-test.json";
+    const GLOBAL_CONFIG_FROM_ZEROSTATE: &str = "../configs/ton-global.config-mainet-test.json";
     const DB_PATH: &str = "target/node_restart";
 
     for step in 1..=4 {
 
         remove_dir_all(DB_PATH).ok();
 
-        // Steps: 
+        // Steps:
         //   1 - isolated node (no replies from network expected), start from zerostate
         //   2 - isolated node (no replies from network expected), start from initblock
         //   3 - connected node, start from zerostate
         //   4 - connected node, start from initblock
-        let (config, ip) = match step {
-            1 => (CONFIG_FROM_ZEROSTATE, "127.0.0.1:5191".to_string()),
-            2 => (CONFIG_FROM_INITBLOCK, "127.0.0.1:5191".to_string()),
-            3 => (CONFIG_FROM_ZEROSTATE, configure_ip("0.0.0.0:1", 4190)),
-            _ => (CONFIG_FROM_INITBLOCK, configure_ip("0.0.0.0:1", 4190))
+        let (global_config, ip) = match step {
+            1 => (GLOBAL_CONFIG_FROM_ZEROSTATE, "127.0.0.1:5191".to_string()),
+            2 => (GLOBAL_CONFIG_FROM_INITBLOCK, "127.0.0.1:5191".to_string()),
+            3 => (GLOBAL_CONFIG_FROM_ZEROSTATE, configure_ip("0.0.0.0:1", 4190)),
+            _ => (GLOBAL_CONFIG_FROM_INITBLOCK, configure_ip("0.0.0.0:1", 4190))
         };
 
         for i in 1..=2 {
             println!("Step {} Iteration #{}", step, i);
             let rt = init_test();
             let stopper = Arc::new(Stopper::new());
-            let mut config = rt.block_on(get_config(&ip, None, config)).unwrap();
+            let mut config = rt.block_on(get_config(&ip, None)).unwrap();
+            config.set_global_config_name(global_config);
             config.set_internal_db_path(DB_PATH.to_string());
             let stopper_clone = stopper.clone();
             rt.spawn(

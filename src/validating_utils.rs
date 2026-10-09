@@ -316,9 +316,9 @@ pub fn may_update_shard_block_info(
         fail!("`old_blkids` must have either one or two start blocks in a top shard block update")
     }
 
-
     let before_split = old_blkids[0].shard().is_parent_for(new_info.shard());
     let before_merge = old_blkids.len() == 2;
+
     if before_merge {
         if old_blkids[0].shard().sibling() != *old_blkids[1].shard() {
             fail!("the two start blocks of a top shard block update must be siblings")
@@ -339,8 +339,8 @@ pub fn may_update_shard_block_info(
 
     let mut ancestor = None;
     let mut old_cc_seqno = 0;
-    for ob in old_blkids {
 
+    for ob in old_blkids {
         let old_info = shards
             .get_shard(ob.shard())
             .unwrap_or_default()
@@ -422,6 +422,7 @@ pub fn may_update_shard_block_info(
             }
 
         }
+
         if before_merge {
             if old_info.descr.is_fsm_split() || old_info.descr.is_fsm_none() {
                 fail!(
@@ -460,6 +461,7 @@ pub fn may_update_shard_block_info(
             expected_next_catchain_seqno
         )
     }
+
     if new_info.descr.end_lt >= lt_limit {
         fail!(
             "the top shard block update has end_lt {} which is larger than the current limit {}",
@@ -474,9 +476,11 @@ pub fn may_update_shard_block_info(
 
 pub fn calc_remp_msg_ordering_hash<'a>(msg_id: &UInt256, prev_blocks_ids: impl Iterator<Item = &'a BlockIdExt>) -> UInt256 {
     let mut hasher = Sha256::new();
+
     for prev_id in prev_blocks_ids {
         hasher.update(prev_id.root_hash().as_slice());
     }
+
     hasher.update(msg_id.as_slice());
     UInt256::from(hasher.finalize().as_slice())
 }
@@ -484,6 +488,7 @@ pub fn calc_remp_msg_ordering_hash<'a>(msg_id: &UInt256, prev_blocks_ids: impl I
 pub fn fmt_block_id_short(block_id: &BlockIdExt) -> String {
     let rh_part = &block_id.root_hash().as_slice()[0..2];
     let rh_part = hex::encode(rh_part);
+
     format!(
         "{}:{}, {}, rh {}",
         block_id.shard().workchain_id(),
@@ -496,6 +501,7 @@ pub fn fmt_block_id_short(block_id: &BlockIdExt) -> String {
 pub fn fmt_next_block_descr(next_block_id: &BlockIdExt) -> String {
     let rh_part = &next_block_id.root_hash().as_slice()[0..2];
     let rh_part = hex::encode(rh_part);
+
     format!(
         "{}:{}, {}, rh {}",
         next_block_id.shard().workchain_id(),

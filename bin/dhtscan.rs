@@ -15,7 +15,7 @@ use adnl::node::{AdnlNode, AdnlNodeConfig};
 use adnl::DhtNode;
 use adnl::OverlayNode;
 use std::{collections::HashMap, env, fs::File, io::BufReader, ops::Deref, sync::Arc};
-use ever_node::config::TonNodeGlobalConfigJson;
+use ever_node::config::NodeGlobalConfigJson;
 use ever_block::{error, fail, base64_encode, KeyOption, Result};
 
 const IP: &str = "0.0.0.0:4191";
@@ -25,7 +25,7 @@ fn scan(cfgfile: &str, jsonl: bool, search_overlay: bool, use_workchain0: bool) 
 
     let file = File::open(cfgfile)?;
     let reader = BufReader::new(file);
-    let config: TonNodeGlobalConfigJson = serde_json::from_reader(reader).map_err(
+    let config: NodeGlobalConfigJson = serde_json::from_reader(reader).map_err(
         |e| error!("Cannot read config from file {}: {}", cfgfile, e) 
     )?;
     let zero_state = config.zero_state()?;

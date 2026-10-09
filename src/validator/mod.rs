@@ -28,6 +28,8 @@ pub mod sessions_computing;
 pub mod message_cache;
 pub mod candidate_db;
 pub mod collator;
+pub mod election_bid;
+pub mod election_keys;
 pub mod out_msg_queue;
 mod out_msg_queue_cleaner;
 mod mutex_wrapper;

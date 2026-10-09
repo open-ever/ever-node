@@ -89,8 +89,8 @@ impl EngineOperations for Engine {
         }
     }
 
-    fn get_validator_status(&self) -> bool {
-        self.network.config_handler().get_validator_status()
+    fn has_validator_keys(&self) -> bool {
+        !self.network.keystore().snapshot().elections.is_empty()
     }
 
     fn validator_network(&self) -> Arc<dyn PrivateOverlayOperations> {
@@ -107,10 +107,6 @@ impl EngineOperations for Engine {
 
     fn activate_validator_list(&self, validator_list_id: UInt256) -> Result<()> {
         self.network().activate_validator_list(validator_list_id)
-    }
-
-    async fn get_validator_bls_key(&self, key_id: &Arc<KeyId>) -> Option<Arc<dyn KeyOption>> {
-        self.network().get_validator_bls_key(key_id).await
     }
 
     fn set_sync_status(&self, status: u32) {

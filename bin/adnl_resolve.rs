@@ -14,7 +14,7 @@
 use adnl::node::{AdnlNode, AdnlNodeConfig};
 use adnl::{DhtNode, DhtSearchPolicy};
 use std::{convert::TryInto, env, fs::File, io::BufReader};
-use ever_node::config::TonNodeGlobalConfigJson;
+use ever_node::config::NodeGlobalConfigJson;
 use ever_block::{error, fail, base64_decode, KeyId, Result};
 
 const IP: &str = "0.0.0.0:4191";
@@ -24,7 +24,7 @@ async fn scan(adnlid: &str, cfgfile: &str) -> Result<()> {
 
     let file = File::open(cfgfile)?;
     let reader = BufReader::new(file);
-    let config: TonNodeGlobalConfigJson = serde_json::from_reader(reader).map_err(
+    let config: NodeGlobalConfigJson = serde_json::from_reader(reader).map_err(
         |e| error!("Cannot read config from file {}: {}", cfgfile, e) 
     )?;
     let dht_nodes = config.get_dht_nodes_configs()?;

@@ -12,7 +12,7 @@ Everscale node and validator with tools
 
 ## About
 
-Implementation of Everscal node and validator in safe Rust. This repository also contains a collection of tools used to manage the Everscale node.
+Implementation of Everscal node and validator in Rust. This repository also contains a collection of tools used to manage the Everscale node.
 
 ## Getting Started
 
@@ -68,7 +68,9 @@ Where
 
 `timeout` – command timeout in seconds
 
-Configuration file should be created manually and have the following format:
+On its first start the node writes such a file, `console.config.json`, next to `node.config.json`,
+with a console key it allows, so `console -C console.config.json` works as is. Otherwise create
+the configuration file in the following format:
 
 ```json
 {
@@ -82,9 +84,7 @@ Configuration file should be created manually and have the following format:
 						"type_id": 1209251014,
 						"pvt_key": "oEivbTDjSOSCgooUM0DAS2z2hIdnLw/PT82A/OFLDmA="
 				}
-		},
-		"wallet_id": "-1:af17db43f40b6aa24e7203a9f8c8652310c88c125062d1129fe883eaa1bd6763",
-		"max_factor": 2.7
+		}
 }
 ```
 
@@ -92,125 +92,64 @@ Where
 
 `server_address` – address and port of the node.
 
-`server_key` – structure containing server public key. Can be generated with keygen tool.
+`server_key` – structure containing the public key of the node's control server. The node keeps the
+key in `keystore.json`, writes its public key to `console.config.json` and logs it at start
+(`Control server public key: <base64>`).
 
-`client_key` – structure containing client private key. Can be generated with keygen tool.
+`client_key` – structure containing client private key. The node generates one for its first
+`console.config.json`, otherwise generate it with the keygen tool and pass its public key to the node
+with `--console-key` (or add it to `control_server.clients`).
 
 `type_id` – key type, indicating ed25519 is used. Should not be changed.
 
-`wallet_id` – validator wallet address.
-
-`max_factor` – [max_factor](https://docs.ton.dev/86757ecb2/p/456977-validator-elections) stake parameter (maximum ratio allowed between your stake and the minimal
- validator stake in the elected validator group), should be ≥ 1
- 
 ### Commands
 
-#### addadnl
-
-**`addadnl`** – sets key as ADNL address.
-
-params:
-
-• `perm_key_hash` - ed25519 hash of permanent public key in hex or base64 format.
-
-• `key_hash` - ed25519 hash of public key in hex or base64 format.
-
-• `expire-at` - time the ADNL address expires and is deleted from node, in unixtime.
-
-Example:
+The node manages its validator keys itself, in `keystore.json` next to `node.config.json` (see
+[config.md](config.md)): for every election it creates a signing key, picks one of its two
+validator ADNL keys and builds the signed stake message. Taking part in an election is one command:
 
 ```bash
-console -c "addadnl 4374376452376543 6783978551824553 1608288600"
+console -c "election-bid <election-id> <max-factor> <address>"
 ```
 
-#### addpermkey
-
-**`addpermkey`** - adds validator permanent key
-
-params:
-
-• `key_hash` - ed25519 hash of public key in hex or base64 format.
-
-• `election-date` - election start in unixtime.
-
-• `expire-at`- time the key expires and is deleted from node, in unixtime.
-
-Example:
-
-```bash
-console -c "addpermkey 4374376452376543 1608205174 1608288600"
-```
-
-#### addtempkey
-
-**`addtempkey`** - adds validator temporary key.
-
-params:
-
-• `perm_key_hash` - ed25519 hash of permanent public key in hex or base64 format.
-
-• `key_hash` - ed25519 hash of public key in hex or base64 format.
-
-• `expire-at` - time the key expires and is deleted from node, in unixtime.
-
-Example:
-
-```bash
-console -c "addtempkey 4374376452376543 6783978551824553 1608288600"
-```
-
-#### addvalidatoraddr
-
-**`addvalidatoraddr`** - adds validator ADNL address.
-
-params:
-
-• `perm_key_hash` - ed25519 hash of permanent public key in hex or base64 format.
-
-• `key_hash` - ed25519 hash of public key in hex or base64 format.
-
-• `expire-at`- time the ADNL address expires and is deleted from node, in unixtime.
-
-Example:
-
-```bash
-console -c "addvalidatoraddr 4374376452376543 6783978551824553 1608288600"
-```
+Send the stake message to the elector together with the stake, through the validator wallet.
+The node removes the keys of finished elections when it creates the keys for a new election.
 
 #### election-bid
 
-**`election-bid`** - obtains required information from the blockchain, generates all the necessary keys for validator, prepares the message in predefined format, asks to sign it and sends to the blockchain.
+**`election-bid`** - asks the node for the stake message of an election. The node creates the keys
+of the election on the first request and reuses them later. Sending the stake is up to the operator.
 
-params:
+The node refuses, and the console prints its message, when:
+* it is not synced, its last masterchain state is older than 10 minutes;
+* the election is over, its id is earlier than the end of the current validator set.
+* both of its validator ADNL keys are used by the current and the next validator sets.
 
-• `election-start` - unixtime of election start.
+A node with no masterchain state and no validator keys yet creates the keys without a stake message,
+that is how the validators of a new network's zerostate get their keys.
 
-• `election-end` - unixtime of election end.
+Prints JSON with the validator public key and the ADNL address in hex, and the stake message as a
+base64 BOC (`null` when the node made zerostate keys):
 
-• `filename` - filename with path to save body of message ("validator-query.boc" by default)
-
-Example:
-
-```bash
-console -c "election-bid 1608205174 1608288600"
+```json
+{
+  "adnl_addr": "6b9a...",
+  "public_key": "1af6...",
+  "stake_message": "te6ccgEBAgEAhQA..."
+}
 ```
 
-Command calls all other necessary subcommands automatically. Election request is written to file.
-
-#### exportpub
-
-**`exportpub`** - exports public key by key hash.
-
 params:
 
-• `key_hash` - ed25519 hash of public key in hex or base64 format.
+• `election-id`
+• `max-factor`
+• `address`
 
-Returns public_key - ed25519 public key in hex and base64 format.
-
-Example:
+Example, saving the stake message to a file:
 
 ```bash
-console -c "exportpub 4374376452376543"
+console -c "election-bid 1608205174 2.7 -1:03c2c211939363eedb8704c8b5f22941bc09c6b8a99bf01ea88fa196f43e788b" \
+    | jq -r .stake_message | base64 -d > validator-query.boc
 ```
 
 #### getaccount
@@ -325,20 +264,6 @@ Example:
 console -c "getstats"
 ```
 
-#### newkey
-
-**`newkey`** - generates new key pair on server.
-
-Command has no parameters.
-
-Returns ed25519 hash of public key in hex and base64 format.
-
-Example:
-
-```bash
-console -c "newkey"
-```
-
 #### recover_stake
 
 **`recover_stake`** – recovers all or part of the validator stake from elector.
@@ -365,22 +290,6 @@ Example:
 
 ```bash
 console -c "sendmessage message.boc"
-```
-
-#### sign
-
-**`sign`** - signs bytestring with private key.
-
-params:
-
-• `key_hash` - ed25519 hash of public key in hex or base64 format.
-
-• `data` - data in hex or base64 format.
-
-Example:
-
-```bash
-console -c "sign 4374376452376543 af17db43f40b6aa24e7203a9f8c8652310c88c125062d1129f"
 ```
 
 ## Zerostate tool

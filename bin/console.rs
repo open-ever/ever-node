@@ -15,22 +15,24 @@ use adnl::{
     common::TaggedTlObject, client::{AdnlClient, AdnlClientConfig, AdnlClientConfigJson}
 };
 use clap::Parser;
-use ever_abi::{Contract, Token, TokenValue, Uint};
 use ever_block::{
-    error, fail, AccountStatus, base64_decode, base64_encode, BlockIdExt, BuilderData,
-    Deserializable, Ed25519KeyOption, Result, Serializable, ShardAccount, SliceData, 
+    error, fail, AccountStatus, base64_encode, BlockIdExt, BuilderData,
+    Deserializable, Result, Serializable, ShardAccount, SliceData, 
     UInt256, write_boc, ShardIdent,
 };
 use ever_block_json::parse_state;
 use std::{
-    collections::HashMap, convert::TryInto, env, net::SocketAddr, str::FromStr, time::Duration
+    convert::TryInto, net::SocketAddr, str::FromStr, time::Duration
 };
 use tokio::io::AsyncReadExt;
 use ton_api::{
     serialize_boxed,
     ton::{
         self, TLObject, 
-        accountaddress::AccountAddress, engine::validator::{ControlQueryError, onestat::OneStat}, 
+        accountaddress::AccountAddress,
+        engine::validator::{
+            ControlQueryError, onestat::OneStat, preparedelectionbid::PreparedElectionBid
+        },
         raw::ShardAccountState, rpc::engine::validator::ControlQuery
     }
 };
@@ -38,10 +40,6 @@ use ton_api::{
 use ton_api::tag_from_bare_object;
 
 include!("../common/src/test.rs");
-
-const ELECTOR_ABI: &[u8] = include_bytes!("Elector.abi.json"); //elector's ABI
-const ELECTOR_PROCESS_NEW_STAKE_FUNC_NAME: &str = "process_new_stake"; //elector process_new_stake function name
-const USE_FIFTH_ELECTOR: bool = true;
 
 trait SendReceive<Q> {
     fn send(params: &mut impl Iterator<Item = Q>) -> Result<TLObject>;
@@ -95,21 +93,9 @@ macro_rules! commands {
 }
 
 commands! {
-    AddAdnlAddr, "addadnl", 
-        "addadnl <keyhash> <category>\tuse key as ADNL addr"
-    AddValidatorAdnlAddr, "addvalidatoraddr", 
-        "addvalidatoraddr <permkeyhash> <keyhash> <expireat>\tadd validator ADNL addr"
-    AddValidatorPermKey, "addpermkey", 
-        "addpermkey <keyhash> <election-date> <expire-at>\tadd validator permanent key"
-    AddValidatorTempKey, "addtempkey", 
-        "addtempkey <permkeyhash> <keyhash> <expire-at>\tadd validator temp key"
-    AddValidatorBlsKey, "addblskey", 
-        "addblskey <permkeyhash> <keyhash> <expire-at>\t add validator bls key"
-    Bundle, "bundle", 
+    Bundle, "bundle",
         "bundle <block_id>\tprepare bundle"
-    ExportPub, "exportpub", 
-        "exportpub <keyhash>\texports public key by key hash"
-    FutureBundle, "future_bundle", 
+    FutureBundle, "future_bundle",
         "future_bundle <block_id>\tprepare future bundle"
     GetAccount, "getaccount", 
         "getaccount <account id> <Option<file name>> <Option<block_id>>\tget account info"
@@ -131,14 +117,10 @@ commands! {
         "getstatsnew\tget status full node or validator in new format"
     GetStats, "getstats", 
         "getstats\tget status full node or validator"
-    NewKeypair, "newkey", 
-        "newkey\tgenerates new key pair on server"
     SendMessage, "sendmessage", 
         "sendmessage <filename>\tload a serialized message from <filename> and send it to server"
     SetStatesGcInterval, "setstatesgcinterval", 
         "setstatesgcinterval <milliseconds>\tset interval in ms between shard states GC runs"
-    Sign, "sign", 
-        "sign <keyhash> <data>\tsigns bytestring with privkey"
     ResetExternalDb, "resetextdb",
         "resetextdb\t sets external db block pointer to last applied block"
 }
@@ -155,29 +137,6 @@ fn downcast<T: ton_api::AnyBoxedSerialize>(data: TLObject) -> Result<T> {
         Ok(result) => Ok(result),
         Err(obj) => fail!("Wrong downcast {:?} to {}", obj, std::any::type_name::<T>())
     }
-}
-
-fn parse_data<Q: ToString>(param_opt: Option<Q>, name: &str) -> Result<ton::bytes> {
-    parse_any(
-        param_opt,
-        &format!("{} in hex format", name),
-        |value| Ok(hex::decode(value)?)
-    )
-}
-
-fn parse_int256<Q: ToString>(param_opt: Option<Q>, name: &str) -> Result<UInt256> {
-    parse_any(
-        param_opt,
-        &format!("{} in hex or base64 format", name),
-        |value| {
-            let value = match value.len() {
-                44 => base64_decode(value)?,
-                64 => hex::decode(value)?,
-                length => fail!("wrong hash: {} with length: {}", value, length)
-            };
-            Ok(UInt256::with_array(value.as_slice().try_into()?))
-        }
-    )
 }
 
 fn parse_int<Q: ToString>(param_opt: Option<Q>, name: &str) -> Result<ton::int> {
@@ -206,6 +165,21 @@ fn stats_to_json<'a>(stats: impl IntoIterator<Item = &'a OneStat>) -> serde_json
         (stat.key.clone(), value)
     }).collect::<serde_json::Map<_, _>>();
     map.into()
+}
+
+fn election_bid_json(bid: &PreparedElectionBid) -> String {
+    let stake_message = match bid.stake_message.is_empty() {
+        true => serde_json::Value::Null,
+        false => base64_encode(&bid.stake_message).into()
+    };
+
+    let json = serde_json::json!({
+        "public_key": hex::encode(bid.public_key.as_slice()),
+        "adnl_addr": hex::encode(bid.adnl_addr.as_slice()),
+        "stake_message": stake_message
+    });
+
+    format!("{:#}", json)
 }
 
 impl <Q: ToString> SendReceive<Q> for GetStats {
@@ -249,137 +223,6 @@ impl <Q: ToString> SendReceive<Q> for GetSessionStats {
         }).collect::<serde_json::Map<_, _>>();
         let description = format!("{:#}", serde_json::Value::from(description));
         Ok((description, data))
-    }
-}
-
-impl <Q: ToString> SendReceive<Q> for NewKeypair {
-    fn send(params: &mut impl Iterator<Item = Q>) -> Result<TLObject> {
-        match params.next() {
-            None => Ok(TLObject::new(ton::rpc::engine::validator::GenerateKeyPair)),
-            Some(param) => {
-                match param.to_string().to_lowercase().as_str() {
-                    "bls" => Ok(TLObject::new(ton::rpc::engine::validator::GenerateBlsKeyPair)),
-                    _ => fail!("invalid parameters!")
-                }
-            },
-        }
-    }
-    fn receive(answer: TLObject, _params: &mut impl Iterator) -> Result<(String, Vec<u8>)> {
-        let answer = downcast::<ton_api::ton::engine::validator::KeyHash>(answer)?;
-        let key_hash = answer.key_hash().as_slice().to_vec();
-        let msg = format!(
-            "received public key hash: {} {}", 
-            hex::encode(&key_hash), base64_encode(&key_hash)
-        );
-        Ok((msg, key_hash))
-    }
-}
-
-impl <Q: ToString> SendReceive<Q> for ExportPub {
-    fn send(params: &mut impl Iterator<Item = Q>) -> Result<TLObject> {
-        let key_hash = parse_int256(params.next(), "key_hash")?;
-        Ok(TLObject::new(ton::rpc::engine::validator::ExportPublicKey {
-            key_hash
-        }))
-    }
-    fn receive(answer: TLObject, _params: &mut impl Iterator) -> Result<(String, Vec<u8>)> {
-        let answer = downcast::<ton_api::ton::PublicKey>(answer)?;
-        let pub_key = match answer.key() {
-            Some(key) => key.clone().into_vec(),
-            None => {
-                answer.bls_key()
-                    .ok_or_else(|| error!("Public key not found in answer!"))?
-                    .clone()
-            }
-        };
-        let msg = format!("imported key: {} {}", hex::encode(&pub_key), base64_encode(&pub_key));
-        Ok((msg, pub_key))
-    }
-}
-
-impl <Q: ToString> SendReceive<Q> for Sign {
-    fn send(params: &mut impl Iterator<Item = Q>) -> Result<TLObject> {
-        let key_hash = parse_int256(params.next(), "key_hash")?;
-        let data = parse_data(params.next(), "data")?;
-        Ok(TLObject::new(ton::rpc::engine::validator::Sign {
-            key_hash,
-            data
-        }))
-    }
-    fn receive(answer: TLObject, _params: &mut impl Iterator) -> Result<(String, Vec<u8>)> {
-        let answer = downcast::<ton_api::ton::engine::validator::Signature>(answer)?;
-        let signature = answer.signature().clone();
-        let msg = format!(
-            "got signature: {} {}", 
-            hex::encode(&signature), base64_encode(&signature)
-        );
-        Ok((msg, signature))
-    }
-}
-
-impl <Q: ToString> SendReceive<Q> for AddValidatorPermKey {
-    fn send(params: &mut impl Iterator<Item = Q>) -> Result<TLObject> {
-        let key_hash =  parse_int256(params.next(), "key_hash")?;
-        let election_date = parse_int(params.next(), "election_date")?;
-        let ttl = parse_int(params.next(), "expire_at")? - election_date;
-        Ok(TLObject::new(ton::rpc::engine::validator::AddValidatorPermanentKey {
-            key_hash,
-            election_date,
-            ttl
-        }))
-    }
-}
-
-impl <Q: ToString> SendReceive<Q> for AddValidatorBlsKey {
-    fn send(params: &mut impl Iterator<Item = Q>) -> Result<TLObject> {
-        let permanent_key_hash = parse_int256(params.next(), "permanent_key_hash")?;
-        let key_hash =  parse_int256(params.next(), "key_hash")?;
-        let ttl = parse_int(params.next(), "expire_at")? - now();
-        Ok(TLObject::new(ton::rpc::engine::validator::AddValidatorBlsKey {
-            permanent_key_hash,
-            key_hash,
-            ttl
-        }))
-    }
-}
-
-impl <Q: ToString> SendReceive<Q> for AddValidatorTempKey {
-    fn send(params: &mut impl Iterator<Item = Q>) -> Result<TLObject> {
-        let permanent_key_hash = parse_int256(params.next(), "permanent_key_hash")?;
-        let key_hash = parse_int256(params.next(), "key_hash")?;
-        let ttl = parse_int(params.next(), "expire_at")? - now();
-        Ok(TLObject::new(ton::rpc::engine::validator::AddValidatorTempKey {
-            permanent_key_hash,
-            key_hash,
-            ttl
-        }))
-    }
-}
-
-impl <Q: ToString> SendReceive<Q> for AddValidatorAdnlAddr {
-    fn send(params: &mut impl Iterator<Item = Q>) -> Result<TLObject> {
-        let permanent_key_hash = parse_int256(params.next(), "permanent_key_hash")?;
-        let key_hash = parse_int256(params.next(), "key_hash")?;
-        let ttl = parse_int(params.next(), "expire_at")? - now();
-        Ok(TLObject::new(ton::rpc::engine::validator::AddValidatorAdnlAddress {
-            permanent_key_hash,
-            key_hash,
-            ttl
-        }))
-    }
-}
-
-impl <Q: ToString> SendReceive<Q> for AddAdnlAddr {
-    fn send(params: &mut impl Iterator<Item = Q>) -> Result<TLObject> {
-        let key_hash = parse_int256(params.next(), "key_hash")?;
-        let category = parse_int(params.next(), "category")?;
-        if !(0..=15).contains(&category) {
-            fail!("category must be not negative and less than 16")
-        }
-        Ok(TLObject::new(ton::rpc::engine::validator::AddAdnlId {
-            key_hash,
-            category
-        }))
     }
 }
 
@@ -639,19 +482,16 @@ impl <Q: ToString> SendReceive<Q> for ResetExternalDb {
 
 /// ControlClient
 struct ControlClient{
-    config: AdnlConsoleConfigJson,
     adnl: AdnlClient,
 }
 
 impl ControlClient {
-
     /// Connect to server
-    async fn connect(mut config: AdnlConsoleConfigJson) -> Result<Self> {
-        let client_config = config.config.take()
+    async fn connect(config: AdnlConsoleConfigJson) -> Result<Self> {
+        let client_config = config.config
             .ok_or_else(|| error!("config must contain \"config\" section"))?;
         let (_, adnl_config) = AdnlClientConfig::from_json_config(client_config)?;
         Ok(Self {
-            config,
             adnl: AdnlClient::connect(&adnl_config).await?,
         })
     }
@@ -686,7 +526,7 @@ impl ControlClient {
             Ok(query) => query,
             Err(err) => {
                 let help = command_help(name).map_or_else(|err| err.to_string(), |help| help.to_string());
-                println!("{}\n{}", err, help);
+                eprintln!("{}\n{}", err, help);
                 return Err(err)
             }
         };
@@ -707,7 +547,7 @@ impl ControlClient {
                 Err(answer) => fail!("Wrong response to {:?}: {:?}", query, answer),
                 Ok(result) => Ok(result)
             }
-            Ok(error) => fail!("Error response to {:?}: {:?}", query, error),
+            Ok(error) => Err(anyhow::Error::msg(error.message().clone()))
         }
     }
 
@@ -759,196 +599,44 @@ impl ControlClient {
         Ok((format!("Message body is {} saved to path {}", base64_encode(&data), path), data))
     }
 
-    fn convert_to_uint(value: &[u8], bytes_count: usize) -> TokenValue {
-        assert!(value.len() == bytes_count);
-        TokenValue::Uint(Uint {
-            number: num_bigint::BigUint::from_bytes_be(value),
-            size: value.len() * 8,
-        })
-    }
-
-    // @input elect_time expire_time <validator-query.boc>
-    // @output validator-query.boc
+    // @input election_id max_factor address
+    // @output JSON with the validator public key, the ADNL address and the stake message
     async fn process_election_bid<Q: ToString>(
-        &mut self, 
+        &mut self,
         params: &mut impl Iterator<Item = Q>
     ) -> Result<(String, Vec<u8>)> {
-
-        let wallet_id = parse_any(self.config.wallet_id.as_ref(), "wallet_id", |value| {
+        let election_id = parse_any(params.next(), "election_id", |value| Ok(u32::from_str(value)?))?;
+        let max_factor = parse_any(params.next(), "max_factor", |value| {
+            let max_factor = f64::from_str(value)?;
+            if !(1.0..=100.0).contains(&max_factor) {
+                fail!("{} is not a real number 1..100", value)
+            }
+            Ok((max_factor * 65536.0) as u32)
+        })?;
+        // The elector takes stakes only from the masterchain
+        let address = parse_any(params.next(), "address", |value| {
             match value.strip_prefix("-1:") {
-                Some(stripped) => Ok(hex::decode(stripped)?),
-                None => fail!("use masterchain wallet")
+                Some(account) => Ok(UInt256::with_array(hex::decode(account)?.as_slice().try_into()?)),
+                None => fail!("{} is not a masterchain address -1:<hex>", value)
             }
         })?;
-        let elect_time = parse_int(params.next(), "elect_time")?;
-        if elect_time <= 0 {
-            fail!("<elect-utime> must be a positive integer")
+        if params.next().is_some() {
+            fail!("election-bid takes <election-id> <max-factor> <address>")
         }
-        let elect_time_str = elect_time.to_string();
-        let expire_time = parse_int(params.next(), "expire_time")?;
-        if expire_time <= elect_time {
-            fail!("<expire-utime> must be a grater than elect_time")
-        }
-        let expire_time_str = expire_time.to_string();
-        let max_factor = self.config.max_factor.ok_or_else(
-            || error!("you must give max_factor as real")
-        )?;
-        if !(1.0..=100.0).contains(&max_factor) {
-            fail!("<max-factor> must be a real number 1..100")
-        }
-        let max_factor = (max_factor * 65536.0) as u32;
-
-        let (s, perm) = self.process_command(
-            "newkey", 
-            &mut Vec::<String>::new().iter()
-        ).await?;
-        log::trace!("{}", s);
-        let perm_str = hex::encode_upper(&perm);
-
-        let (s, pub_key) = self.process_command(
-            "exportpub", 
-            &mut [&perm_str].iter()
-        ).await?;
-        log::trace!("{}", s);
-
-        let (s, _) = self.process_command(
-            "addpermkey", 
-            &mut [&perm_str, &elect_time_str, &expire_time_str].iter()
-        ).await?;
-        log::trace!("{}", s);
-
-        let (s, _) = self.process_command(
-            "addtempkey", 
-            &mut [&perm_str, &perm_str, &expire_time_str].iter()
-        ).await?;
-        log::trace!("{}", s);
-
-        let (s, adnl) = self.process_command(
-            "newkey", 
-            &mut Vec::<String>::new().iter()
-        ).await?;
-        log::trace!("{}", s);
-        let adnl_str = hex::encode_upper(&adnl);
-
-        let (s, _) = self.process_command(
-            "addadnl", 
-            &mut [&adnl_str, "0"].iter()
-        ).await?;
-        log::trace!("{}", s);
-
-        let (s, _) = self.process_command(
-            "addvalidatoraddr", 
-            &mut [&perm_str, &adnl_str, &elect_time_str].iter()
-        ).await?;
-        log::trace!("{}", s);
-
-        // validator-elect-req.fif
-        let mut data = 0x654C5074u32.to_be_bytes().to_vec();
-        data.extend_from_slice(&elect_time.to_be_bytes());
-        data.extend_from_slice(&max_factor.to_be_bytes());
-        data.extend_from_slice(&wallet_id);
-        data.extend_from_slice(&adnl);
-        let data_str = hex::encode_upper(&data);
-        log::trace!("data to sign {}", data_str);
-        let (s, signature) = self.process_command(
-            "sign", 
-            &mut [&perm_str, &data_str].iter()
-        ).await?;
-        log::trace!("{}", s);
-        Ed25519KeyOption::from_public_key(&pub_key[..].try_into()?)
-            .verify(&data, &signature)?;
-
-        let body = if USE_FIFTH_ELECTOR {
-            let mut version = ever_node::validating_utils::supported_version();
-            if version >= 61 {
-                let (s, _) = self.process_command("getconfig", &mut ["8"].iter()).await?;
-                log::trace!("{}", s);
-                version = version.min(serde_json::from_str::<serde_json::Value>(&s)?
-                    .get("p8").ok_or_else(|| error!("no p8 in config param 8"))?
-                    .get("version").ok_or_else(|| error!("no version in config param 8"))?
-                    .as_u64().ok_or_else(|| error!("p8.version is not unsigned integer"))? as u32);
+        let query = ton::rpc::engine::validator::PrepareElectionBid { election_id, max_factor, address };
+        let mut bid = None;
+        self.process_any_type_command(
+            "election-bid",
+            |_| Ok(TLObject::new(query)),
+            |_, answer| {
+                bid = Some(
+                    downcast::<ton_api::ton::engine::validator::PreparedElectionBid>(answer)?.only()
+                );
+                Ok((String::new(), Vec::new()))
             }
-            let query_id = now() as u64;
-            // validator-elect-signed.fif
-            let mut data = 0x4E73744Bu32.to_be_bytes().to_vec();
-            data.extend_from_slice(&query_id.to_be_bytes());
-            if version >= 61 {
-                data.extend_from_slice(&pub_key[0..28]);
-                let version = version ^ u32::from_be_bytes([pub_key[28], pub_key[29], pub_key[30], pub_key[31]]);
-                data.extend_from_slice(&version.to_be_bytes());
-            } else {
-                data.extend_from_slice(&pub_key);
-            }
-            data.extend_from_slice(&elect_time.to_be_bytes());
-            data.extend_from_slice(&max_factor.to_be_bytes());
-            data.extend_from_slice(&adnl);
-            let len = data.len() * 8;
-            let mut body = BuilderData::with_raw(data, len)?;
-            let len = signature.len() * 8;
-            body.checked_append_reference(BuilderData::with_raw(signature, len)?.into_cell()?)?;
-            body.into_cell()?
-        } else {
-
-            let (s, bls) = self.process_command(
-                "newkey", 
-                &mut ["bls"].iter()
-            ).await?;
-            log::trace!("{}", s);
-            let bls_str = hex::encode_upper(&bls);
-
-            let (s, bls_pub_key) = self.process_command(
-                "exportpub", 
-                &mut [&bls_str].iter()
-            ).await?;
-            log::trace!("{}", s);
-
-            let (s, _) = self.process_command(
-                "addblskey", 
-                &mut [&perm_str, &bls_str, &elect_time_str].iter()
-            ).await?;
-            log::trace!("{}", s);
-
-            let contract = Contract::load(ELECTOR_ABI).expect("Elector's ABI must be valid");
-            let process_new_stake_fn = contract
-                .function(ELECTOR_PROCESS_NEW_STAKE_FUNC_NAME)
-                .expect("Elector contract must have 'process_new_stake' function for elections")
-                .clone();
-            log::trace!("Use process new stake function '{}' with id={:08X}",
-                ELECTOR_PROCESS_NEW_STAKE_FUNC_NAME, process_new_stake_fn.get_function_id());
-
-            let time_now_ms = ever_node::engine::now_duration().as_millis() as u64;
-            let header: HashMap<_, _> = vec![("time".to_owned(), TokenValue::Time(time_now_ms))]
-                .into_iter()
-                .collect();
-
-            let query_id = now() as u64;
-
-            let parameters = [
-                Token::new("query_id", Self::convert_to_uint(&query_id.to_be_bytes(), 8)),
-                Token::new("validator_pubkey", Self::convert_to_uint(&pub_key, 32)),
-                Token::new("stake_at", Self::convert_to_uint(&elect_time.to_be_bytes(), 4)),
-                Token::new("max_factor", Self::convert_to_uint(&max_factor.to_be_bytes(), 4)),
-                Token::new("adnl_addr", Self::convert_to_uint(&adnl, 32)),
-                Token::new("bls_key1", Self::convert_to_uint(&bls_pub_key[0..32], 32)), //256 bits
-                Token::new("bls_key2", Self::convert_to_uint(&bls_pub_key[32..], 16)), //128 bits
-                Token::new("signature", TokenValue::Bytes(signature.to_vec())),
-            ];
-
-            const INTERNAL_CALL: bool = true; //internal message
-
-            process_new_stake_fn
-                .encode_input(&header, &parameters, INTERNAL_CALL, None, None)?
-                .into_cell()?
-        };
-
-        log::trace!("message body {}", body);
-        let data = write_boc(&body)?;
-        let path = params.next().map(
-            |path| path.to_string()).unwrap_or("validator-query.boc".to_string()
-        );
-        std::fs::write(&path, &data)?;
-        Ok((format!("Message body is {} saved to path {}", base64_encode(&data), path), data))
-
+        ).await?;
+        let bid = bid.ok_or_else(|| error!("no answer to election-bid"))?;
+        Ok((election_bid_json(&bid), bid.stake_message))
     }
 
     // @input <tcp-port-to-listen-to>
@@ -1096,8 +784,6 @@ impl ControlClient {
 #[derive(serde::Deserialize)]
 struct AdnlConsoleConfigJson {
     config: Option<AdnlClientConfigJson>,
-    wallet_id: Option<String>,
-    max_factor: Option<f32>
 }
 
 #[derive(clap::Parser)]
@@ -1118,31 +804,16 @@ struct Cli {
     /// verbose regim
     #[arg(long)]
     verbose: bool,
-
-    /// output in json format
-    #[arg(short, long)]
-    json: bool,
 }
 
 #[tokio::main]
 async fn main() {
-    // init_test_log();
     let args = Cli::parse();
-
-    if !args.json {
-        println!(
-            "everx-labs console {}\nCOMMIT_ID: {}\nBUILD_DATE: {}\nCOMMIT_DATE: {}\nGIT_BRANCH: {}",
-            env!("CARGO_PKG_VERSION"),
-            env!("BUILD_GIT_COMMIT"),
-            env!("BUILD_TIME") ,
-            env!("BUILD_GIT_DATE"),
-            env!("BUILD_GIT_BRANCH")
-        );
-    }
 
     if args.verbose {
         let encoder_boxed = Box::new(log4rs::encode::pattern::PatternEncoder::new("{m}{n}"));
         let console = log4rs::append::console::ConsoleAppender::builder()
+            .target(log4rs::append::console::Target::Stderr)
             .encoder(encoder_boxed)
             .build();
         let config = log4rs::config::Config::builder()
@@ -1163,7 +834,7 @@ async fn main() {
         for command in commands {
             match client.command(command.trim_matches('\"')).await {
                 Ok((result, _)) => println!("{}", result),
-                Err(err) => println!("Error executing command: {}", err)
+                Err(err) => eprintln!("Error executing command: {}", err)
             }
             tokio::time::sleep(timeout).await;
         }
@@ -1177,7 +848,7 @@ async fn main() {
                 "quit" => break,
                 command => match client.command(command).await {
                     Ok((result, _)) => println!("{}", result),
-                    Err(err) => println!("{}", err)
+                    Err(err) => eprintln!("{}", err)
                 }
             }
         }
@@ -1197,11 +868,12 @@ mod test {
     };
     use ever_node::{
         block::BlockKind, collator_test_bundle::create_engine_allocated,
-        config::TonNodeConfig, engine_traits::{EngineAlloc, EngineOperations},
+        config::NodeConfig, engine_traits::{EngineAlloc, EngineOperations},
         internal_db::{state_gc_resolver::AllowStateGcSmartResolver, InternalDb, InternalDbConfig}, 
+        keystore::Keystore,
         network::{control::{ControlServer, DataSource}, node_network::NodeNetwork},
         shard_state::ShardStateStuff, shard_states_keeper::PinnedShardStateGuard,
-        validator::validator_manager::ValidationStatus
+        validator::{election_keys::ElectionKeysError, validator_manager::ValidationStatus}
     };
     #[cfg(feature = "telemetry")]
     use ever_node::engine_traits::EngineTelemetry;
@@ -1210,7 +882,7 @@ mod test {
 
     use rand::{Rng, SeedableRng};
     use std::{
-        cmp::min, fs, path::Path, sync::{Arc, atomic::{AtomicU64, Ordering}},
+        cmp::min, collections::HashMap, fs, path::Path, sync::{Arc, atomic::{AtomicU64, Ordering}},
         time::{Duration, Instant}, thread
     };
     use storage::block_handle_db::BlockHandle;
@@ -1517,32 +1189,13 @@ mod test {
     }
     
     const ADNL_SERVER_CONFIG: &str = r#"{
-        "ton_global_config_name": "light_global.json",
+        "global_config_name": "light_global.json",
         "adnl_node": {
-            "ip_address": "127.0.0.1:4191",
-            "keys": [
-                {
-                    "tag": 1,
-                    "data": {
-                        "type_id": 1209251014,
-                        "pvt_key": "x3osWUUfcdybRLcmH7mJer4S0NM7TDpEw4SCftKD7bY="
-                    }
-                },
-                {
-                    "tag": 2,
-                    "data": {
-                        "type_id": 1209251014,
-                        "pvt_key": "K56upUuRmuZrXhuExmmgr3DQt5Ae12XXQDXUXeGCQxg="
-                    }
-                }
-            ]
+            "ip_address": "127.0.0.1:4191"
         },
         "control_server": {
+            "enabled": true,
             "address": "127.0.0.1:4924",
-            "server_key": {
-                "type_id": 1209251014,
-                "pvt_key": "cJIxGZviebMQWL726DRejqVzRTSXPv/1sO/ab6XOZXk="
-            },
             "clients": {
                 "list": [
                     {
@@ -1552,6 +1205,16 @@ mod test {
                 ]
             }
         }
+    }"#;
+
+    const KEYSTORE: &str = r#"{
+        "version": 1,
+        "dht": { "private_key": "x3osWUUfcdybRLcmH7mJer4S0NM7TDpEw4SCftKD7bY=" },
+        "public_overlay": { "private_key": "K56upUuRmuZrXhuExmmgr3DQt5Ae12XXQDXUXeGCQxg=" },
+        "control_server": { "private_key": "cJIxGZviebMQWL726DRejqVzRTSXPv/1sO/ab6XOZXk=" },
+        "lite_server": { "private_key": "fsezi50OROBpd4PAAyWR8Rp8jmBsD1kzNv6OPoU5dXw=" },
+        "validator_adnl": [],
+        "elections": []
     }"#;
 
     const ADNL_CLIENT_CONFIG: &str = r#"{
@@ -1565,9 +1228,7 @@ mod test {
                 "type_id": 1209251014,
                 "pvt_key": "oEivbTDjSOSCgooUM0DAS2z2hIdnLw/PT82A/OFLDmA="
             }
-        },
-        "wallet_id": "-1:af17db43f40b6aa24e7203a9f8c8652310c88c125062d1129fe883eaa1bd6763",
-        "max_factor": 2.7
+        }
     }"#;
 
     const GLOBAL_CONFIG: &str = r#"{
@@ -1795,16 +1456,19 @@ mod test {
         // init_test_log();
         std::fs::write(Path::new(CFG_DIR).join(CFG_NODE_FILE), ADNL_SERVER_CONFIG).unwrap();
         std::fs::write(Path::new(CFG_DIR).join(CFG_GLOB_FILE), GLOBAL_CONFIG).unwrap();
-        let node_config = TonNodeConfig::from_file(
-            CFG_DIR, CFG_NODE_FILE, None, "", None
-        ).unwrap();
-        let control_server_config = node_config.control_server().unwrap();
+        let node_config = NodeConfig::from_file(CFG_DIR, CFG_NODE_FILE, None, None, None).unwrap();
+        let keystore_path = Path::new(CFG_DIR).join("console_test_keystore.json");
+        std::fs::write(&keystore_path, KEYSTORE).unwrap();
+        let keystore = Keystore::open_or_create(keystore_path).unwrap();
+        let control_server_key = keystore.snapshot().control_server_key.clone();
+        let control_server_config = node_config.control_server(control_server_key).unwrap();
         let config = control_server_config.expect("must have control server setting");
         #[cfg(feature = "telemetry")]
         let telemetry = create_engine_telemetry();
         let allocated = create_engine_allocated();
         let network = NodeNetwork::new(
             node_config,
+            keystore.clone(),
             tokio_util::sync::CancellationToken::new(),
             #[cfg(feature = "telemetry")]
             telemetry.clone(),
@@ -1821,9 +1485,9 @@ mod test {
         let server = ControlServer::with_params(
             config,
             DataSource::Engine(engine.clone()), 
-            network.config_handler(),//.clone(), 
-            network.config_handler(),//.clone(),
-            Some(&network)//None
+            keystore,
+            network.config_handler(),
+            Some(network)
         ).await.unwrap();
         let config = serde_json::from_str(ADNL_CLIENT_CONFIG).unwrap();
         let client = ControlClient::connect(config).await.unwrap();
@@ -1877,12 +1541,6 @@ mod test {
         test_one_cmd_fail(cmd).await;
         let cmd = "getblock \"\"";
         test_one_cmd_fail(cmd).await;
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn test_new_key_one() {
-        let cmd = "newkey";
-        test_one_cmd(cmd, |result| assert_eq!(result.len(), 32)).await;
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -2039,16 +1697,39 @@ mod test {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_election_bid() {
-        const OUT_FILE: &str = "./target/test_file.boc";
-        let now = now() + 86400;
-        let cmd = format!("election-bid {} {} \"{}\"", now, now + 10001, OUT_FILE);
-        test_one_cmd(
-            &cmd, 
-            |result| {
-                assert_eq!(result.len(), 164);
-                fs::remove_file(OUT_FILE).unwrap();
-            }
-        ).await;
+        const ACCOUNT: &str = "af17db43f40b6aa24e7203a9f8c8652310c88c125062d1129fe883eaa1bd6763";
+        let (server, mut client, engine) = init_test(None).await;
+        let election = now() + 86400;
+        // The node makes the keys and the stake itself, but the state of the test chain is old
+        let err = client.command(&format!("election-bid {} 2.7 -1:{}", election, ACCOUNT)).await.unwrap_err();
+        assert_eq!(err.to_string(), ElectionKeysError::NotSynced.to_string());
+        // The elector takes stakes only from the masterchain
+        let err = client.command(&format!("election-bid {} 2.7 0:{}", election, ACCOUNT)).await.unwrap_err();
+        assert!(err.to_string().contains("masterchain"), "{}", err);
+        done_test(server, client, engine).await;
+    }
+
+    #[test]
+    fn test_election_bid_json() {
+        let mut bid = PreparedElectionBid {
+            public_key: UInt256::from([1; 32]),
+            adnl_addr: UInt256::from([2; 32]),
+            stake_message: vec![3, 4]
+        };
+
+        let json = |bid: &PreparedElectionBid| {
+            serde_json::from_str::<serde_json::Value>(&election_bid_json(bid)).unwrap()
+        };
+
+        assert_eq!(json(&bid), serde_json::json!({
+            "public_key": "01".repeat(32),
+            "adnl_addr": "02".repeat(32),
+            "stake_message": base64_encode([3, 4])
+        }));
+
+        // Keys of a zerostate validator come without a stake message
+        bid.stake_message.clear();
+        assert_eq!(json(&bid)["stake_message"], serde_json::Value::Null);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -2093,17 +1774,6 @@ mod test {
         ).await;
     }
 
-    #[tokio::test(flavor = "multi_thread")]
-    async fn test_new_key_with_export() {
-        let (server, mut client, engine) = init_test(None).await;
-        let (_, result) = client.command("newkey").await.unwrap();
-        assert_eq!(result.len(), 32);
-        let cmd = format!("exportpub {}", base64_encode(&result));
-        let (_, result) = client.command(&cmd).await.unwrap();
-        assert_eq!(result.len(), 32);
-        done_test(server, client, engine).await;
-    }
-
     macro_rules! parse_test {
         ($func:expr, $param:expr) => {
             $func($param.split_whitespace().next(), "test")
@@ -2117,34 +1787,6 @@ mod test {
         assert_eq!(parse_test!(parse_int, "1600000000").unwrap(), 1600000000);
         parse_test!(parse_int, "qwe").expect_err("must generate error");
         parse_int(Option::<&str>::None, "test").expect_err("must generate error");
-    }
-
-    #[test]
-    fn test_parse_int256() {
-        let ethalon = "GfgI79Xf3q7r4q1SPz7wAqBt0W6CjavuADODoz/DQE8=";
-        assert_eq!(
-            parse_test!(parse_int256, ethalon).unwrap(), 
-            ethalon.parse::<UInt256>().unwrap()
-        );
-        assert_eq!(
-            parse_test!(
-                parse_int256, 
-                "19F808EFD5DFDEAEEBE2AD523F3EF002A06DD16E828DABEE003383A33FC3404F"
-            ).unwrap(), 
-            ethalon.parse::<UInt256>().unwrap()
-        );
-        parse_test!(parse_int256, "11").expect_err("must generate error");
-        parse_int256(Option::<&str>::None, "test").expect_err("must generate error");
-    }
-
-    #[test]
-    fn test_parse_data() {
-        let ethalon = vec![10, 77];
-        assert_eq!(parse_test!(parse_data, "0A4D").unwrap(), ethalon);
-        parse_test!(parse_data, "QQ").expect_err("must generate error");
-        parse_test!(parse_data, "GfgI79Xf3q7r4q1SPz7wAqBt0W6CjavuADODoz/DQE8=")
-            .expect_err("must generate error");
-        parse_data(Option::<&str>::None, "test").expect_err("must generate error");
     }
 
     #[test]

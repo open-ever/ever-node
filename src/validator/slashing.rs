@@ -30,7 +30,7 @@ use validator_session::{
 #[cfg(feature = "log_metrics")]
 use validator_session::{PublicKeyHash, SlashingAggregatedValidatorStat};
 
-const ELECTOR_ABI: &[u8] = include_bytes!("Elector.abi.json"); //elector's ABI
+const ELECTOR_ABI: &[u8] = include_bytes!("../../abis/Elector.abi.json"); //elector's ABI
 const ELECTOR_REPORT_FUNC_NAME: &str = "report"; //elector slashing report function name
 lazy_static::lazy_static! {
     static ref ELECTOR_CONTRACT_ABI: Contract = Contract::load(ELECTOR_ABI)

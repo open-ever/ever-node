@@ -20,7 +20,7 @@ use std::{convert::TryInto, env, fs::File, io::BufReader, sync::Arc};
 use ton_api::ton::{TLObject, rpc::ton_node::GetCapabilities};
 #[cfg(feature = "telemetry")]
 use ton_api::tag_from_boxed_type;
-use ever_node::config::TonNodeGlobalConfigJson;
+use ever_node::config::NodeGlobalConfigJson;
 use ever_block::{error, fail, base64_decode, Ed25519KeyOption, Result};
 
 const IP: &str = "0.0.0.0:4191";
@@ -41,7 +41,7 @@ fn ping(
     local_cfgfile: Option<&str>
 ) -> Result<()> {
 
-    let global_cfg: TonNodeGlobalConfigJson = read_config(global_cfgfile, "global")?;
+    let global_cfg: NodeGlobalConfigJson = read_config(global_cfgfile, "global")?;
     let zero_state_file_hash = *global_cfg.zero_state()?.file_hash.as_slice();
     let ip = IpAddress::from_versioned_string(ip_addr, None)?;
 

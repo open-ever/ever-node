@@ -25,8 +25,8 @@ checksum = "aae1277d39aeec15cb388266ecc24b11c80469deae6067e17a1a7aa9e5c1f234"
 
 [[package]]
 name = "adnl"
-version = "0.11.43"
-source = "git+https://github.com/open-ever/ever-adnl.git?tag=0.11.43#74b5dd7ce014a4512d419acf9b89087dcf64e314"
+version = "0.11.45"
+source = "git+https://github.com/open-ever/ever-adnl.git?tag=0.11.45#75228a991d26129f6b86e9ec2548009ca232f481"
 dependencies = [
  "aes-ctr",
  "anyhow",
@@ -1226,8 +1226,8 @@ dependencies = [
 
 [[package]]
 name = "ever_block_json"
-version = "0.9.42"
-source = "git+https://github.com/open-ever/ever-block-json.git?tag=0.9.42#b9ea54430d3393c3ebf7fb8c70c5ad63839e0875"
+version = "0.9.43"
+source = "git+https://github.com/open-ever/ever-block-json.git?tag=0.9.43#3b7f8e81d8b9943f19e186a42fbe55c79c038970"
 dependencies = [
  "anyhow",
  "ever_block",
@@ -3004,7 +3004,7 @@ dependencies = [
 [[package]]
 name = "raptor-q"
 version = "1.7.0"
-source = "git+https://github.com/open-ever/ever-adnl.git?tag=0.11.43#74b5dd7ce014a4512d419acf9b89087dcf64e314"
+source = "git+https://github.com/open-ever/ever-adnl.git?tag=0.11.45#75228a991d26129f6b86e9ec2548009ca232f481"
 
 [[package]]
 name = "raw-cpuid"
@@ -3911,8 +3911,8 @@ dependencies = [
 
 [[package]]
 name = "ton_api"
-version = "0.4.34"
-source = "git+https://github.com/open-ever/ever-tl.git?tag=0.4.34#f0ec629307fa17028871d92e900080fdf7e2d7bd"
+version = "0.4.35"
+source = "git+https://github.com/open-ever/ever-tl.git?tag=0.4.35#2b66661d27d3c75ccdb5949755015f212d836fe4"
 dependencies = [
  "anyhow",
  "byteorder",
@@ -3932,7 +3932,7 @@ dependencies = [
 [[package]]
 name = "ton_tl_codegen"
 version = "0.1.0"
-source = "git+https://github.com/open-ever/ever-tl.git?tag=0.4.34#f0ec629307fa17028871d92e900080fdf7e2d7bd"
+source = "git+https://github.com/open-ever/ever-tl.git?tag=0.4.35#2b66661d27d3c75ccdb5949755015f212d836fe4"
 dependencies = [
  "crc 1.8.1",
  "pom",

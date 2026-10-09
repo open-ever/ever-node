@@ -13,7 +13,7 @@
 
 use crate::{
     block::BlockStuff, block_proof::BlockProofStuff, 
-    config::{CollatorConfig, CollatorTestBundlesGeneralConfig, TonNodeConfig},
+    config::{CollatorConfig, CollatorTestBundlesGeneralConfig, NodeConfig},
     engine::{now_duration, EngineFlags, SplitQueues}, internal_db::BlockResult,
     lite_server::LiteServer,
     network::{control::ControlServer, full_node_client::FullNodeOverlayClient},
@@ -131,8 +131,6 @@ pub trait PrivateOverlayOperations: Sync + Send {
 
     fn remove_validator_list(&self, validator_list_id: UInt256) -> Result<bool>;
 
-    async fn get_validator_bls_key(&self, key_id: &Arc<KeyId>) -> Option<Arc<dyn KeyOption>>;
-
     fn create_catchain_client(
         &self,
         validator_list_id: UInt256,
@@ -155,7 +153,10 @@ pub trait EngineOperations : Sync + Send {
 
     async fn is_foreign_wc(&self, workchain_id: i32) -> Result<(bool, i32)> { unimplemented!() }
 
-    fn get_validator_status(&self) -> bool { unimplemented!() }
+    /// Whether the keystore has the keys of at least one election.
+    fn has_validator_keys(&self) -> bool {
+        unimplemented!()
+    }
 
     fn validator_network(&self) -> Arc<dyn PrivateOverlayOperations> {
         unimplemented!()
@@ -215,10 +216,6 @@ pub trait EngineOperations : Sync + Send {
     }
 
     fn remove_validator_list(&self, validator_list_id: UInt256) -> Result<bool> {
-        unimplemented!()
-    }
-
-    async fn get_validator_bls_key(&self, key_id: &Arc<KeyId>) -> Option<Arc<dyn KeyOption>> {
         unimplemented!()
     }
 
@@ -736,7 +733,7 @@ pub trait EngineOperations : Sync + Send {
     }
 
     fn db_root_dir(&self) -> Result<&str> {
-        Ok(TonNodeConfig::DEFAULT_DB_ROOT)
+        Ok(NodeConfig::DEFAULT_DB_ROOT)
     }
 
     fn produce_chain_ranges_enabled(&self) -> bool {

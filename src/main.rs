@@ -24,6 +24,7 @@ mod error;
 mod external_db;
 mod full_node;
 mod internal_db;
+mod keystore;
 mod lite_server;
 mod macros;
 mod network;
@@ -31,6 +32,7 @@ mod rng;
 mod shard_state;
 mod sync;
 mod types;
+mod utils;
 mod validating_utils;
 mod validator;
 mod shard_states_keeper;
@@ -41,8 +43,8 @@ mod ext_messages;
 mod shard_blocks;
 
 use crate::{
-    config::TonNodeConfig, engine::{Engine, Stopper, EngineFlags},
-    internal_db::restore::set_graceful_termination
+    config::NodeConfig, engine::{Engine, Stopper, EngineFlags},
+    internal_db::restore::set_graceful_termination, keystore::Keystore
 };
 #[cfg(feature = "external_db")]
 use crate::engine_traits::ExternalDb;
@@ -298,8 +300,12 @@ fn set_panic_hook() {
 }
 
 #[cfg(feature = "external_db")]
-fn start_external_db(config: &TonNodeConfig) -> Result<Vec<Arc<dyn ExternalDb>>> {
-    let control_id = config.control_server()?.map(|config| *config.server_id());
+fn start_external_db(
+    config: &NodeConfig,
+    keystore: &Keystore
+) -> Result<Vec<Arc<dyn ExternalDb>>> {
+    let control_server_key = keystore.snapshot().control_server_key.clone();
+    let control_id = config.control_server(control_server_key)?.map(|config| *config.server_id());
     Ok(vec!(
         external_db::create_external_db(
             config.external_db_config().ok_or_else(
@@ -312,17 +318,19 @@ fn start_external_db(config: &TonNodeConfig) -> Result<Vec<Arc<dyn ExternalDb>>>
 }
 
 async fn start_engine(
-    config: TonNodeConfig, 
+    config: NodeConfig, 
+    keystore: Arc<Keystore>,
     zerostate_path: Option<&str>, 
     validator_runtime: tokio::runtime::Handle, 
     flags: EngineFlags,
     stopper: Arc<Stopper>
 ) -> Result<(Arc<Engine>, tokio::task::JoinHandle<()>)> {
     #[cfg(feature = "external_db")]
-    let external_db = start_external_db(&config)?;
+    let external_db = start_external_db(&config, &keystore)?;
 
     crate::engine::run(
         config, 
+        keystore,
         zerostate_path, 
         #[cfg(feature = "external_db")]
         external_db, 
@@ -332,8 +340,7 @@ async fn start_engine(
     ).await
 }
 
-const CONFIG_NAME: &str = "config.json";
-const DEFAULT_CONFIG_NAME: &str = "default_config.json";
+const CONFIG_NAME: &str = "node.config.json";
 
 fn cli_long_version() -> String {
     let package = env!("CARGO_PKG_VERSION");
@@ -346,8 +353,9 @@ fn cli_long_version() -> String {
 #[derive(clap::Parser)]
 #[command(version, long_version = cli_long_version())]
 struct Cli {
+    /// Path to the directory with configs and keystore used by the node
     #[arg(short = 'c', long, default_value = "./")]
-    config: String,
+    configs: String,
 
     /// Directory with zerostate files (<file_hash>.boc) to load at boot
     #[arg(long)]
@@ -388,12 +396,18 @@ fn main() {
 
     let zerostate_path = cli.zero_state;
 
-    let config = match TonNodeConfig::from_file(
-        &cli.config,
-        CONFIG_NAME,
-        None,
-        DEFAULT_CONFIG_NAME,
-        cli.console_key
+    let keystore = match Keystore::open_or_create(NodeConfig::keystore_path(&cli.configs)) {
+        Err(e) => {
+            eprintln!("Can't load keystore: {:?}", e);
+            std::process::exit(1);
+        },
+        Ok(keystore) => keystore
+    };
+
+    let control_server_key = keystore.snapshot().control_server_key.clone();
+
+    let config = match NodeConfig::from_file(
+        &cli.configs, CONFIG_NAME, None, cli.console_key, Some(&control_server_key)
     ) {
         Err(e) => {
             eprintln!("Can't load config: {:?}", e);
@@ -492,6 +506,7 @@ fn main() {
     let failed = runtime.block_on(async move {
         match start_engine(
             config,
+            keystore,
             zerostate_path.as_deref(),
             validator_rt_handle,
             flags,

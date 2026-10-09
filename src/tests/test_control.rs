@@ -13,7 +13,7 @@
 
 use crate::{
     collator_test_bundle::create_engine_allocated, 
-    config::TonNodeConfig, engine::Engine, engine_traits::EngineOperations, 
+    config::NodeConfig, engine::Engine, engine_traits::EngineOperations, keystore::Keystore,
     internal_db::{InternalDb, InternalDbConfig, state_gc_resolver::AllowStateGcSmartResolver}, 
     network::{
         control::{ControlQuerySubscriber, ControlServer, DataSource, StatusReporter},
@@ -32,18 +32,18 @@ use adnl::{
     server::AdnlServerConfig
 };
 use std::{
-    collections::HashMap, fs::{copy, remove_dir_all}, ops::Deref, 
-    sync::{Arc, atomic::{AtomicBool, Ordering}}, time::SystemTime
+    collections::HashMap, fs::remove_dir_all, ops::Deref, 
+    sync::{Arc, atomic::{AtomicBool, AtomicUsize, Ordering}}, time::SystemTime
 };
 use storage::block_handle_db::BlockHandle;
 use ton_api::{ 
     serialize_boxed, tag_from_boxed_type, AnyBoxedSerialize,
     ton::{
         self, TLObject, accountaddress::AccountAddress,
-        engine::validator::{ControlQueryError, KeyHash, Stats},
+        engine::validator::{ControlQueryError, PreparedElectionBid, Stats},
         lite_server::ConfigInfo, raw::{ShardAccountState, AppliedShardsInfo},
         rpc::{
-            engine::validator::{ControlQuery, GenerateKeyPair, GetSelectedStats, GetStats},
+            engine::validator::{ControlQuery, GetSelectedStats, GetStats, PrepareElectionBid},
             lite_server::GetConfigAll, 
             raw::{GetShardAccountState, GetAccountByBlock, GetAppliedShardsInfo},
         }
@@ -96,12 +96,6 @@ const ADNL_CLIENT_CONFIG: &str = r#"{
 }"#;
 
 const IP_NODE: &str = "127.0.0.1:4191";
-const DEFAULT_CONFIG: &str = "default_config.json";
-
-async fn generate_keypair(client: &mut AdnlClient) -> Result<Arc<dyn KeyOption>> {
-    let answer: KeyHash = request(client, GenerateKeyPair).await?;
-    Ok(Ed25519KeyOption::from_public_key(answer.key_hash().as_slice()))
-}
 
 async fn query(client: &mut AdnlClient, query: &TLObject) -> Result<TLObject> {
     let control_query = TaggedTlObject {
@@ -131,32 +125,57 @@ where
         )
 }
 
+/// A new keystore of its own for every test
+fn fresh_keystore() -> Result<Arc<Keystore>> {
+    static COUNTER: AtomicUsize = AtomicUsize::new(0);
+    let path = format!(
+        "./target/test_control_keystore_{}_{}.json",
+        std::process::id(), COUNTER.fetch_add(1, Ordering::Relaxed)
+    );
+    std::fs::remove_file(&path).ok();
+    Keystore::open_or_create(path)
+}
+
 async fn start_control_with_options(
     data_source: DataSource,
-    config: Option<TonNodeConfig>,
+    config: Option<NodeConfig>,
     server_only: bool
 ) -> Result<(ControlServer, Option<AdnlClient>, Arc<KeyId>)> {
-    copy("./configs/ton-global.config-sample.json", "./target/ton-global.config-sample.json")?;
+    let (control, client, key_id, _) =
+        start_control_with_keystore(data_source, config, server_only, fresh_keystore()?).await?;
+    Ok((control, client, key_id))
+}
+
+async fn start_control_with_keystore(
+    data_source: DataSource,
+    config: Option<NodeConfig>,
+    server_only: bool,
+    keystore: Arc<Keystore>
+) -> Result<(ControlServer, Option<AdnlClient>, Arc<KeyId>, Arc<NodeNetwork>)> {
+    crate::test_helper::prepare_global_config();
     let config = if let Some(config) = config {
         config
     } else {
-        crate::test_helper::get_config(IP_NODE, Some("./target"), DEFAULT_CONFIG).await?
+        crate::test_helper::get_config(IP_NODE, Some("./target")).await?
     };
+
     let network = NodeNetwork::new(
         config,
+        keystore.clone(),
         tokio_util::sync::CancellationToken::new(),
         #[cfg(feature = "telemetry")]
         create_engine_telemetry(),
         create_engine_allocated()
     ).await.unwrap();
+
     let key_id = network.get_key_id_by_tag(NodeNetwork::TAG_OVERLAY_KEY)?;
     let config = AdnlServerConfig::from_json(ADNL_SERVER_CONFIG)?;
     let control = ControlServer::with_params(
         config,
         data_source,
+        keystore,
         network.config_handler(),
-        network.config_handler(),
-        Some(&network)
+        Some(network.clone())
     ).await?;
     let client = if server_only {
         None
@@ -164,7 +183,7 @@ async fn start_control_with_options(
         let (_, config) = AdnlClientConfig::from_json(ADNL_CLIENT_CONFIG)?;
         Some(AdnlClient::connect(&config).await?)
     };
-    Ok((control, client, key_id))
+    Ok((control, client, key_id, network))
 }
 
 async fn start_control(
@@ -177,7 +196,7 @@ async fn start_control(
 
 async fn start_control_with_config(
     data_source: DataSource,
-    config: TonNodeConfig,
+    config: NodeConfig,
 ) -> Result<(ControlServer, AdnlClient, Arc<KeyId>)> {
     let (server, client, key_id) =
         start_control_with_options(data_source, Some(config), false).await?;
@@ -502,8 +521,11 @@ async fn test_connect_to_control() {
         DataSource::Status(Arc::new(TestSource))
     ).await.unwrap();
 
-    let pub_key = generate_keypair(&mut client).await.unwrap();
-    log::debug!("public key: {}", base64_encode(pub_key.pub_key().unwrap()));
+    // A node that has not booted makes keys for a zerostate validator, without a stake message
+    let query = PrepareElectionBid { election_id: 1000, max_factor: 3 << 16, address: UInt256::default() };
+    let bid = request::<_, PreparedElectionBid>(&mut client, query).await.unwrap().only();
+    assert!(bid.stake_message.is_empty());
+    log::debug!("validator public key: {}", base64_encode(bid.public_key.as_slice()));
     client.shutdown().await.unwrap();
     control.shutdown().await;
 
@@ -528,11 +550,11 @@ async fn test_control_send_message() {
 
     let body = Message::default().write_to_bytes().unwrap();
     let engine = TestSendMsgEngine{expected_data: body.clone()};
-    let config = TonNodeConfig::from_file(
+    let config = NodeConfig::from_file(
         "./target",
         "config_test_control.json",
+        Some(IP_NODE),
         None,
-        "../configs/default_config.json",
         None
     ).unwrap();
 
@@ -870,4 +892,3 @@ async fn test_stats() {
     ).await;
 
 }
-

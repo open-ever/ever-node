@@ -14,15 +14,15 @@
 #![allow(dead_code)]
 use crate::{
     block::{BlockStuff, BlockKind}, block_proof::BlockProofStuff, 
-    config::{CollatorConfig, TonNodeConfig}, 
+    config::{CollatorConfig, NodeConfig}, 
     collator_test_bundle::create_engine_allocated,
     full_node::apply_block::apply_block,
     internal_db::{
         LAST_APPLIED_MC_BLOCK, SHARD_CLIENT_MC_BLOCK,
         BlockResult, InternalDb, InternalDbConfig,
     },
-    engine_traits::{EngineAlloc, EngineOperations}, ext_messages::MessagesPool, 
-    network::node_network::NodeNetwork, shard_blocks::ShardBlocksPool, 
+    engine_traits::{EngineAlloc, EngineOperations}, ext_messages::MessagesPool,
+    shard_blocks::ShardBlocksPool,
     shard_state::ShardStateStuff,
     types::top_block_descr::TopBlockDescrStuff,
     validator::{collator::Collator, CollatorSettings, validate_query::ValidateQuery}
@@ -402,11 +402,17 @@ pub fn gen_shard_state(
     }
 }
 
-pub async fn get_config(
-    ip: &str, 
-    config_dir: Option<&str>, 
-    default: &str
-) -> Result<TonNodeConfig> {
+/// Puts the sample global config next to the test node configs, under the name a new config uses,
+/// once per test process: tests running in parallel must not read it while another one rewrites it.
+pub fn prepare_global_config() {
+    static COPY: std::sync::Once = std::sync::Once::new();
+    COPY.call_once(|| {
+        std::fs::copy("./configs/ton-global.config-sample.json", "./target/ever-global.config.json")
+            .expect("cannot copy the sample global config");
+    });
+}
+
+pub async fn get_config(ip: &str, config_dir: Option<&str>) -> Result<NodeConfig> {
     let resolved_ip = resolve_ip(ip).await?;
     let config_path = get_test_config_path("node", &resolved_ip)?;
     let config_dir = if let Some(config_dir) = config_dir {
@@ -425,18 +431,7 @@ pub async fn get_config(
     let Some(config_file) = config_file.to_str() else {
         fail!("Cannot use config file {:?}", config_file)
     };
-    let (adnl_config, _) = generate_adnl_configs(
-        ip, 
-        vec![NodeNetwork::TAG_DHT_KEY, NodeNetwork::TAG_OVERLAY_KEY], 
-        Some(resolved_ip)                                                                      
-    )?;
-    TonNodeConfig::from_file(
-        config_dir,
-        config_file,
-        Some(adnl_config), 
-        format!("../configs/{}", default).as_str(),
-        None
-    )
+    NodeConfig::from_file(config_dir, config_file, Some(ip), None, None)
 }
 
 pub fn prepare_data_for_executor_test(
