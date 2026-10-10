@@ -1,18 +1,6 @@
 # ever-node
 
-Everscale node and validator with tools
-
-## Table of Contents
-
-- [About](#about)
-- [Getting Started](#getting-started)
-- [Usage](#usage)
-- [Contributing](#contributing)
-- [License](#license)
-
-## About
-
-Implementation of Everscal node and validator in Rust. This repository also contains a collection of tools used to manage the Everscale node.
+Implementation of Everscale node and validator. This repository also contains a collection of tools used to manage the Everscale node.
 
 ## Getting Started
 
@@ -26,12 +14,12 @@ apt-get update
 apt-get install pkg-config make clang libssl-dev libzstd-dev libgoogle-perftools-dev
 ```
 
-### Installing
+### Building from sources
 
 ```
 git clone https://github.com/open-ever/ever-node.git
 cd ever-node
-cargo build --release
+RUSTFLAGS="-C target-cpu=native" cargo build --release
 ```
 
 ### Running tests
