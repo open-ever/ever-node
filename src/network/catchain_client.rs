@@ -64,15 +64,15 @@ impl CatchainClient {
         catchain_listener: CatchainOverlayListenerPtr,
         broadcast_hops: Option<usize>,
     ) -> Result<Self> {
-
         let mut keys = HashMap::new();
         let mut peers = Vec::new();
         let runtime_handle = runtime_handle.clone();
 
         for node in nodes {
-            if node.public_key.id() == local_adnl_key.id() {
+            if node.public_key.id() == local_validator_key.id() {
                 continue;
             }
+
             keys.insert(node.adnl_id.clone(), node.public_key.id().clone());
             peers.push(node.adnl_id.clone());
         }

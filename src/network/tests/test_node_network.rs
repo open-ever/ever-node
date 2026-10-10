@@ -88,18 +88,16 @@ async fn test_set_validator_list() {
         .unwrap()
         .is_none());
 
-    // A zerostate list without ADNL addresses uses the signing key as the ADNL key
-    let id = UInt256::from([3; 32]);
+    // The signing key's id as our ADNL address
     let list = vec![foreign(), member(&election.key, election.key.id())];
 
     assert!(network
-        .set_validator_list(id.clone(), &list)
+        .set_validator_list(UInt256::from([3; 32]), &list)
         .await
         .unwrap()
-        .is_some());
+        .is_none());
 
-    assert_eq!(&list_adnl(&network, &id), election.key.id());
-    assert!(is_loaded(&network, &election.key));
+    assert!(!is_loaded(&network, &election.key));
 
     network.cancellation_token.cancel();
 }

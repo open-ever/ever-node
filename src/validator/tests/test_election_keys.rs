@@ -161,21 +161,26 @@ fn test_concurrent_bids_for_one_election() {
 
 #[test]
 fn test_chain_view_from_validator_sets() {
-    let (a, b) = (
+    let (a, b, c) = (
+        Ed25519KeyOption::generate().unwrap(),
         Ed25519KeyOption::generate().unwrap(),
         Ed25519KeyOption::generate().unwrap(),
     );
-    let descr = |key: &Arc<dyn KeyOption>, adnl: u8| {
+    let descr = |key: &Arc<dyn KeyOption>, adnl: Option<u8>| {
         let key = SigPubKey::from_bytes(key.pub_key().unwrap()).unwrap();
-        ValidatorDescr::with_params(key, 1, Some(UInt256::from([adnl; 32])), None)
+        ValidatorDescr::with_params(key, 1, adnl.map(|adnl| UInt256::from([adnl; 32])), None)
     };
 
-    let current = ValidatorSet::new(5000, 6000, 1, vec![descr(&a, 1)]).unwrap();
-    let next = ValidatorSet::new(6000, 7000, 1, vec![descr(&b, 2)]).unwrap();
+    // A member without an ADNL address uses none
+    let current = ValidatorSet::new(5000, 6000, 1, vec![descr(&a, Some(1))]).unwrap();
+    let next = ValidatorSet::new(6000, 7000, 1, vec![descr(&b, Some(2)), descr(&c, None)]).unwrap();
     let view = ChainView::new(5500, &current, &next);
 
     assert_eq!((view.current_since, view.current_until), (5000, 6000));
-    assert_eq!(view.keys, HashSet::from([a.id().clone(), b.id().clone()]));
+    assert_eq!(
+        view.keys,
+        HashSet::from([a.id().clone(), b.id().clone(), c.id().clone()])
+    );
     assert_eq!(
         view.adnl,
         HashSet::from([KeyId::from_data([1; 32]), KeyId::from_data([2; 32])])

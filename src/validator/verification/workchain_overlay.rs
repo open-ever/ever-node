@@ -129,13 +129,13 @@ impl WorkchainOverlay {
         log::debug!(target: "verificator", "Creating verification workchain's #{} private overlay - overlay_id={}, overlay={}", workchain_id, overlay_id.to_hex_string(), node_debug_id);
 
         let network = engine.validator_network();
-        let nodes: Vec<CatchainNode> = validators
+        let nodes = validators
             .iter()
-            .map(|desc| CatchainNode {
-                adnl_id: get_adnl_id(desc),
+            .map(|desc| Ok(CatchainNode {
+                adnl_id: get_adnl_id(desc)?,
                 public_key: sigpubkey_to_publickey(&desc.public_key),
-            })
-            .collect();
+            }))
+            .collect::<Result<Vec<CatchainNode>>>()?;
 
         let result = network.set_validator_list(overlay_id.clone(), &nodes).await?;
 

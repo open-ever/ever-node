@@ -21,7 +21,7 @@ All notable changes to this project will be documented in this file.
 - Fixed compiler warnings (deprecated `fetch_update`, hidden elided lifetimes, stale `fast_finality` cfg).
 - Updated `clap` to 4.6 and migrated the `ever-node` and `console`/`print`/`zerostate` CLIs to derive based parsing. May break CLIs backward compatibility.
 
-*4) Improved, better logging:*:
+*4) Improved, better logging:*
 - Moved log config templates to `configs/log_cfg.yml` and `configs/log_cfg_debug.yml`.
 - New log template defaults - 1 GB x 20 rotation and telemetry in a separate `telemetry.log`.
 - Reduced log noise, boot logs key block download progress every 10 s, peer-supplied payloads are no longer dumped.
@@ -43,6 +43,10 @@ All notable changes to this project will be documented in this file.
 - A new `node.config.json` allows a console key the node generates, and `console.config.json` gets its private key in the console's own format, so `console -C console.config.json` works right away. `--console-key` allows your own key instead.
 - `control_server` and `lite_server` share one format: `enabled`, `address`, `clients`, `max_packet_size` (16 MB) and `timeouts`. A server runs only when its section has `"enabled": true`; a new `node.config.json` has the control server enabled and the lite server disabled. Each server logs its public key at start.
 - `node.config.json` is written atomically.
+
+*8) Validator behavior:*
+- Validator sets must give every validator its ADNL address: the node no longer derives one from the signing key, so a set without ADNL addresses (for example if a zerostate's config parm 34 does not contain ADNL addresses) is not validated.
+- Fixed the validators connectivity check, a validator broadcasts its ADNL address instead of its signing key id. Peers track connectivity by ADNL address, before this the connectivity table stayed empty. The connectivity check itself is still disabled in code, whatever `connectivity_check_config` says, so the fix takes effect only if the check is enabled again.
 
 ## Version 0.60.11
 

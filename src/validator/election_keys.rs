@@ -2,6 +2,7 @@ use crate::{
     engine::now_duration,
     keystore::{Election, Keystore, Transaction},
     shard_state::ShardStateStuff,
+    validator::validator_utils::get_adnl_id,
 };
 
 use anyhow::Result;
@@ -49,7 +50,9 @@ impl ChainView {
             keys: members()
                 .map(|descr| descr.public_key.pub_key().id().clone())
                 .collect(),
-            adnl: members().map(|descr| descr.adnl_addr()).collect(),
+            adnl: members()
+                .filter_map(|descr| get_adnl_id(descr).ok())
+                .collect(),
         }
     }
 

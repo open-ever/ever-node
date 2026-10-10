@@ -828,12 +828,16 @@ impl RempClient {
                 cc_seqno,
                 0.into())?;
             for v in &subset {
-                let key = get_adnl_id(v);
+                // A validator without an ADNL address can't be reached
+                let Ok(key) = get_adnl_id(v) else { continue };
                 validators.entry(key).or_insert_with(|| ValidatorInfo {
                     got_receipt_from: Arc::new(AtomicBool::new(false)),
                     //pub_key: Ed25519KeyOption::from_public_key(v.public_key.key_bytes()),
                 });
             }
+        }
+        if validators.is_empty() {
+            fail!("no validator for shard {} has an ADNL address", shard)
         }
 
         let mc_cc_expires_at =  now - now % cc_config.mc_catchain_lifetime + cc_config.mc_catchain_lifetime;
@@ -963,7 +967,10 @@ impl RempClient {
         let cur_vset = config.validator_set()?;
         let next_vset = config.next_validator_set()?;
         for v in cur_vset.list().iter().chain(next_vset.list().iter()) {
-            to_resolve.push(validatordescr_to_catchain_node(v));
+            // A validator without an ADNL address can't be resolved
+            if let Ok(node) = validatordescr_to_catchain_node(v) {
+                to_resolve.push(node);
+            }
         }
          // TODO support callback
         engine.update_validators(to_resolve, vec!()).await?;
@@ -1005,13 +1012,17 @@ impl RempClient {
             let mut to_delete = vec!();
             for v in validators.iter() {
                 if !new.contains(v) {
-                    to_delete.push(validatordescr_to_catchain_node(v))
+                    if let Ok(node) = validatordescr_to_catchain_node(v) {
+                        to_delete.push(node)
+                    }
                 }
             }
             let mut to_resolve = vec!();
             for v in &new {
                 if !validators.contains(v) {
-                    to_resolve.push(validatordescr_to_catchain_node(v))
+                    if let Ok(node) = validatordescr_to_catchain_node(v) {
+                        to_resolve.push(node)
+                    }
                 }
             }
             if !to_delete.is_empty() || !to_resolve.is_empty() {

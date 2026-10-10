@@ -327,10 +327,10 @@ pub struct RempCatchainInfo {
 }
 
 impl RempCatchainInfo {
-    pub fn compute_id(current: &[ValidatorDescr], next: &[ValidatorDescr], general_session_info: Arc<GeneralSessionInfo>) -> UInt256 {
+    pub fn compute_id(current: &[ValidatorDescr], next: &[ValidatorDescr], general_session_info: Arc<GeneralSessionInfo>) -> Result<UInt256> {
         let mut members = Vec::new();
-        get_group_members_by_validator_descrs(current, &mut members);
-        get_group_members_by_validator_descrs(next, &mut members);
+        get_group_members_by_validator_descrs(current, &mut members)?;
+        get_group_members_by_validator_descrs(next, &mut members)?;
 
         let serialized = serialize_tl_boxed_object!(&ton_api::ton::ton_node::rempsessioninfo::RempSessionInfo {
             workchain: general_session_info.shard.workchain_id(),
@@ -342,18 +342,19 @@ impl RempCatchainInfo {
             members
         }.into_boxed());
 
-        UInt256::calc_file_hash(&serialized)
+        Ok(UInt256::calc_file_hash(&serialized))
     }
 
-    fn append_validator_list(nodes: &mut Vec<CatchainNode>, nodes_vdescr: &mut Vec<ValidatorDescr>, adnl_hash: &mut HashSet<Arc<KeyId>>, c: &[ValidatorDescr]) {
+    fn append_validator_list(nodes: &mut Vec<CatchainNode>, nodes_vdescr: &mut Vec<ValidatorDescr>, adnl_hash: &mut HashSet<Arc<KeyId>>, c: &[ValidatorDescr]) -> Result<()> {
         for next_nn in c.iter() {
-            let next_cn = validatordescr_to_catchain_node(next_nn);
+            let next_cn = validatordescr_to_catchain_node(next_nn)?;
             if !adnl_hash.contains(&next_cn.adnl_id) {
                 adnl_hash.insert(next_cn.adnl_id.clone());
                 nodes.push(next_cn);
                 nodes_vdescr.push(next_nn.clone());
             }
         }
+        Ok(())
     }
 
     fn check_unique(nodes: &[CatchainNode]) -> Result<()> {
@@ -378,14 +379,14 @@ impl RempCatchainInfo {
         let mut nodes_vdescr = curr.to_vec();
         let mut adnl_hash: HashSet<Arc<KeyId>> = HashSet::new();
 
-        Self::append_validator_list(&mut nodes, &mut nodes_vdescr, &mut adnl_hash, curr);
-        Self::append_validator_list(&mut nodes, &mut nodes_vdescr, &mut adnl_hash, next);
+        Self::append_validator_list(&mut nodes, &mut nodes_vdescr, &mut adnl_hash, curr)?;
+        Self::append_validator_list(&mut nodes, &mut nodes_vdescr, &mut adnl_hash, next)?;
 
         Self::check_unique(&nodes)?;
 
         let local_key_id = local.id().data().into();
         let local_idx = get_validator_key_idx(local, &nodes)?;
-        let queue_id = Self::compute_id(curr, next, general_session_info.clone());
+        let queue_id = Self::compute_id(curr, next, general_session_info.clone())?;
 
         Ok(RempCatchainInfo {
             general_session_info,

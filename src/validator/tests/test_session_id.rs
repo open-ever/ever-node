@@ -95,8 +95,8 @@ fn do_test_get_validator_set_id(contents: &str) {
     */
     let p = ValidatorParams::parse(&parser);
 
-    let serialized = get_session_id_serialize(p.general_session_info.clone(), p.val_set.list(), true);
-    let computed_id = get_session_id(p.general_session_info.clone(), p.val_set.list(), true);
+    let serialized = get_session_id_serialize(p.general_session_info.clone(), p.val_set.list(), true).unwrap();
+    let computed_id = get_session_id(p.general_session_info.clone(), p.val_set.list(), true).unwrap();
     let actual_id = UInt256::from_slice(&parser.parse_slice("group_id"));
 
     println!("Serialized: {}", hex::encode(&serialized));
@@ -126,7 +126,7 @@ fn do_test_catchain_unsafe_rotate(s: &str) {
     config.unsafe_catchain_rotates.insert(p.general_session_info.catchain_seqno, (prev_block, rotation_id));
 
     //let session_id = get_session_id(&p.shard, &p.val_set, &p.opts_hash, p.key_seqno, true, 0);
-    let session_id = get_session_id(p.general_session_info.clone(), p.val_set.list(), true);
+    let session_id = get_session_id(p.general_session_info.clone(), p.val_set.list(), true).unwrap();
     let unsafe_serialized = compute_session_unsafe_serialized(&session_id, rotation_id);
     let actual_serialized = parser.parse_slice("unsafe_serialized");
 
@@ -136,7 +136,7 @@ fn do_test_catchain_unsafe_rotate(s: &str) {
         true,
         Some(prev_block),
         &config
-    );
+    ).unwrap();
     let real_unsafe_id = UInt256::from_slice(&parser.parse_slice("unsafe_id"));
 
     println!("Actual unsafe-id: {:x}", real_unsafe_id);

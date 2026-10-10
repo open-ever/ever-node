@@ -72,14 +72,14 @@ fn get_session_id_serialize(
     session_info: Arc<GeneralSessionInfo>,
     vals: &[ValidatorDescr],
     new_catchain_ids: bool
-) -> catchain::RawBuffer {
+) -> Result<catchain::RawBuffer> {
     let mut members = Vec::new();
-    get_group_members_by_validator_descrs(vals, &mut members);
+    get_group_members_by_validator_descrs(vals, &mut members)?;
 
     if !new_catchain_ids {
         unimplemented!("Old catchain ids format is not supported")
     } else {
-        serialize_tl_boxed_object!(&ton_api::ton::validator::group::GroupNew {
+        Ok(serialize_tl_boxed_object!(&ton_api::ton::validator::group::GroupNew {
             workchain: session_info.shard.workchain_id(),
             shard: session_info.shard.shard_prefix_with_tag() as i64,
             vertical_seqno: session_info.max_vertical_seqno as i32,
@@ -88,7 +88,7 @@ fn get_session_id_serialize(
             config_hash: session_info.opts_hash.clone(),
             members
         }
-        .into_boxed())
+        .into_boxed()))
     }
 }
 
@@ -97,13 +97,13 @@ fn get_session_id(
     session_info: Arc<GeneralSessionInfo>,
     val_set: &[ValidatorDescr],
     new_catchain_ids: bool,
-) -> UInt256 {
+) -> Result<UInt256> {
     let serialized = get_session_id_serialize(
         session_info,
         val_set,
         new_catchain_ids
-    );
-    UInt256::calc_file_hash(&serialized)
+    )?;
+    Ok(UInt256::calc_file_hash(&serialized))
 }
 
 fn compute_session_unsafe_serialized(session_id: &UInt256, rotate_id: u32) -> Vec<u8> {
@@ -121,8 +121,8 @@ fn get_session_unsafe_id(
     new_catchain_ids: bool,
     prev_block_opt: Option<u32>,
     vm_config: &ValidatorManagerConfig,
-) -> UInt256 {
-    let session_id = get_session_id(session_info.clone(), val_set, new_catchain_ids);
+) -> Result<UInt256> {
+    let session_id = get_session_id(session_info.clone(), val_set, new_catchain_ids)?;
 
     if session_info.shard.is_masterchain() {
         if let Some(rotate_id) = vm_config.check_unsafe_catchain_rotation(prev_block_opt, session_info.catchain_seqno) {
@@ -138,10 +138,10 @@ fn get_session_unsafe_id(
                 rotate_id,
                 unsafe_id.to_hex_string()
             );
-            return unsafe_id;
+            return Ok(unsafe_id);
         }
     }
-    session_id
+    Ok(session_id)
 }
 
 fn validator_session_options_serialize(
@@ -240,6 +240,8 @@ impl ValidationStatus {
 #[derive(Default)]
 struct ValidatorListStatus {
     known_lists: HashMap<ValidatorListHash, PublicKey>,
+    // Lists the node can't use, already reported
+    rejected_lists: HashSet<ValidatorListHash>,
     curr: Option<ValidatorListHash>,
     next: Option<ValidatorListHash>,
     curr_utime_since: Option<u32>,
@@ -427,20 +429,40 @@ impl ValidatorManagerImpl {
         None
     }
 
-    async fn update_single_validator_list(&mut self, validator_list: &[ValidatorDescr], name: &str)
-    -> Result<Option<ValidatorListHash>> {
+    async fn update_single_validator_list(
+        &mut self,
+        validator_list: &[ValidatorDescr],
+        name: &str,
+    ) -> Result<Option<ValidatorListHash>> {
         let list_id = match compute_validator_list_id(validator_list, None)? {
             None => return Ok(None),
-            Some(l) if self.validator_list_status.contains_list(&l) => return Ok(Some(l)),
             Some(l) => l,
         };
 
-        let nodes_res: Vec<CatchainNode> = validator_list
+        // Checked before the known lists: a list id hashes public keys only, not ADNL addresses
+        let nodes_res = match validator_list
             .iter()
             .map(validatordescr_to_catchain_node)
-            .collect::<Vec<CatchainNode>>();
+            .collect::<Result<Vec<CatchainNode>>>()
+        {
+            Ok(nodes) => nodes,
+            Err(e) => {
+                if self.validator_list_status.rejected_lists.insert(list_id.clone()) {
+                    log::error!(target: "validator_manager",
+                        "Not using {} validator list (id {:x}): {}", name, list_id, e
+                    );
+                }
+
+                return Ok(None)
+            }
+        };
+
+        if self.validator_list_status.contains_list(&list_id) {
+            return Ok(Some(list_id))
+        }
 
         log::info!(target: "validator_manager", "Updating {} validator list (id {:x}):", name, list_id);
+
         for x in &nodes_res {
             log::debug!(target: "validator_manager", "pk: {}, pk_id: {}, andl_id: {}",
                 hex::encode(x.public_key.pub_key().unwrap()),
@@ -672,7 +694,7 @@ impl ValidatorManagerImpl {
                 true,
                 prev_block_seqno_opt,
                 &self.config
-            );
+            )?;
 
             let prev_validator_set = prev_subset.compute_validator_set(prev_session_info.catchain_seqno)?;
             list.add_session(Arc::new(
@@ -932,7 +954,7 @@ impl ValidatorManagerImpl {
                 true,
                 prev_block_seqno_opt,
                 &self.config
-            );
+            )?;
 
             let session_info = SessionValidatorsInfo::new(
                 general_session_info.clone(), session_id.clone(), vsubset.clone(), prev_block_seqno_opt
@@ -1318,7 +1340,7 @@ impl ValidatorManagerImpl {
                     new_session_info.clone(),
                     &wc.validators,
                     true,
-                );
+                )?;
                 let vsubset = wc.compute_validator_set(*next_cc_seqno)?;
                 gc_validator_sessions.remove(&session_id);
                 self.validator_sessions.entry(session_id.clone()).or_insert_with(|| {

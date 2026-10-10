@@ -45,7 +45,7 @@ fn prepare_ss(
     for n in 0..200 {
         let keypair = Ed25519KeyOption::generate()?;
         let key = SigPubKey::from_bytes(keypair.pub_key()?)?;
-        let vd = ValidatorDescr::with_params(key, n, None, None);
+        let vd = ValidatorDescr::with_params(key, n, Some(UInt256::rand()), None);
         list.push(vd);
     }
     let vset = ValidatorSet::new(0, current_vset_utime_until, 30, list).unwrap();
@@ -55,7 +55,7 @@ fn prepare_ss(
     for n in 0..200 {
         let keypair = Ed25519KeyOption::generate()?;
         let key = SigPubKey::from_bytes(keypair.pub_key()?)?;
-        let vd = ValidatorDescr::with_params(key, n, None, None);
+        let vd = ValidatorDescr::with_params(key, n, Some(UInt256::rand()), None);
         list.push(vd);
     }
     let next_vset = ValidatorSet::new(0, current_vset_utime_until, 30, list).unwrap();
@@ -137,7 +137,7 @@ fn prepare_validators(
             *cc_seqno,
             0.into())?;
         for v in &subset {
-            validators.insert(get_adnl_id(v));
+            validators.insert(get_adnl_id(v)?);
         }
     }
 

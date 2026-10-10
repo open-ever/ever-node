@@ -964,9 +964,7 @@ impl NodeNetwork {
         Ok(())
     }
 
-    /// The ADNL key of our member of a validator list, if the node has it. A list without an ADNL
-    /// address for our member (zerostate validators) uses the signing key itself, which then stays
-    /// loaded as an ADNL key until the node restarts.
+    /// The ADNL key of our member of a validator list
     fn local_validator_adnl_key(
         &self,
         validator_list_id: &UInt256,
@@ -975,36 +973,24 @@ impl NodeNetwork {
         let adnl_id = &local.node.adnl_id;
         let election = &local.election;
 
-        if adnl_id != election.key.id() && *adnl_id != election.adnl {
+        if *adnl_id != election.adnl {
             log::warn!(
                 "Validator list {:x} gives key {} ADNL address {}, the stake for election {} gave {}",
                 validator_list_id, election.key.id(), adnl_id, election.election_id, election.adnl
             );
         }
 
-        let mut loaded = self.validator_adnl_keys.lock();
+        let key = self.validator_adnl_keys.lock().get(adnl_id).cloned();
 
-        if !loaded.contains_key(adnl_id) && adnl_id == election.key.id() {
-            if let Err(e) = self.load_validator_adnl_key(&mut loaded, &election.key) {
-                log::error!("Cannot load validator key {} as its ADNL key: {}", election.key.id(), e);
-                return None
-            }
-        }
-
-        if let Some(key) = loaded.get(adnl_id) {
-            return Some(key.clone())
-        }
-
-        drop(loaded);
-
-        if self.misconfigured_lists.lock().insert(validator_list_id.clone()) {
+        if key.is_none() && self.misconfigured_lists.lock().insert(validator_list_id.clone()) {
             log::error!(
                 "Validator list {:x} includes our key {} (election {}) with ADNL address {}, \
                 which is not one of the node's validator ADNL keys",
                 validator_list_id, election.key.id(), election.election_id, adnl_id
             );
         }
-        None
+
+        key
     }
 
     #[cfg(feature = "telemetry")]
@@ -1027,11 +1013,14 @@ impl NodeNetwork {
                 big_bc_counter += 1;
 
                 if let Some(validator_set_context) = self.current_validator_set_context() {
-                    let key_id = validator_set_context.validator_key.id().data();
+                    // Peers track connectivity by ADNL address
+                    let key_id = validator_set_context.validator_adnl_key.id().data();
+
                     match self.send_connectivity_broadcast(key_id, vec!()).await {
                         Ok(info) => log::trace!("Sent short connectivity broadcast ({})", info.send_to),
                         Err(e) => log::warn!("Error while sending short connectivity broadcast: {}", e)
                     }
+
                     if big_bc_counter == self.connectivity_check_config.long_mult {
                         big_bc_counter = 0;
                         match self.send_connectivity_broadcast(

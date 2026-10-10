@@ -183,7 +183,7 @@ impl Workchain {
 
             if public_key.id() == local_id {
                 wc_local_idx = idx as i16;
-                local_adnl_id = Some(get_adnl_id(desc));
+                local_adnl_id = Some(get_adnl_id(desc)?);
                 break;
             }
         }
@@ -193,7 +193,7 @@ impl Workchain {
 
             if public_key.id() == local_id {
                 mc_local_idx = idx as i16;
-                local_adnl_id = Some(get_adnl_id(desc));
+                local_adnl_id = Some(get_adnl_id(desc)?);
                 break;
             }
         }
@@ -223,7 +223,7 @@ impl Workchain {
         let wc_validators_count = wc_validators.len();
 
         for (i, desc) in wc_validators.iter_mut().enumerate() {
-            let adnl_id = get_adnl_id(desc);
+            let adnl_id = get_adnl_id(desc)?;
             //let adnl_id = desc.adnl_addr.clone().map_or("** no-addr **".to_string(), |x| x.to_hex_string());
             let public_key = sigpubkey_to_publickey(&desc.public_key);
             let mut bls_public_key = desc.bls_public_key;
@@ -271,7 +271,7 @@ impl Workchain {
         );
 
         for (i, desc) in mc_validators.iter().enumerate() {
-            let adnl_id = get_adnl_id(desc);
+            let adnl_id = get_adnl_id(desc)?;
             //let adnl_id = desc.adnl_addr.clone().map_or("** no-addr **".to_string(), |x| x.to_hex_string());
             let public_key = sigpubkey_to_publickey(&desc.public_key);
 
@@ -294,9 +294,9 @@ impl Workchain {
             workchain_id,
             node_debug_id,
             runtime: runtime.clone(),
-            wc_validators_adnl_ids: wc_validators.iter().map(get_adnl_id).collect(),
+            wc_validators_adnl_ids: wc_validators.iter().map(get_adnl_id).collect::<Result<_>>()?,
             wc_validators,
-            mc_validators_adnl_ids: mc_validators.iter().map(get_adnl_id).collect(),
+            mc_validators_adnl_ids: mc_validators.iter().map(get_adnl_id).collect::<Result<_>>()?,
             mc_validators: mc_validators.clone(),
             wc_validator_set_hash,
             mc_validator_set_hash,

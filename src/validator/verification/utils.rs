@@ -78,9 +78,8 @@ impl Drop for HangCheck {
     Utils
 */
 
-pub(crate) fn get_adnl_id(validator: &ValidatorDescr) -> Arc<KeyId> {
+pub(crate) fn get_adnl_id(validator: &ValidatorDescr) -> Result<Arc<KeyId>> {
     super::super::validator_utils::get_adnl_id(validator)
-    //ever_block::KeyId::from_data(validator.compute_node_id_short().inner())
 }
 
 pub(crate) fn into_public_key_tl(opt: &Arc<dyn KeyOption>) -> Result<ton_api::ton::PublicKey> {

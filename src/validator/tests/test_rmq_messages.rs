@@ -209,7 +209,7 @@ impl RmqTestbench {
         let remp_manager = Arc::new(remp_manager_value);
         let local_validator = ValidatorDescr::with_params (
             SigPubKey::from_bytes(UInt256::rand().as_slice())?,
-            1, None, None
+            1, Some(UInt256::rand()), None
         );
         let local_key = sigpubkey_to_publickey(&local_validator.public_key);
         let curr_validators = vec!(local_validator.clone());

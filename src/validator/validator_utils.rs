@@ -103,16 +103,16 @@ pub fn check_crypto_signatures(signatures: &BlockSignaturesPure, validators_list
     Ok(weight)
 }
 
-pub fn validatordescr_to_catchain_node(descr: &ValidatorDescr) -> CatchainNode {
-    catchain::CatchainNode {
-        adnl_id: get_adnl_id(descr),
+pub fn validatordescr_to_catchain_node(descr: &ValidatorDescr) -> Result<CatchainNode> {
+    Ok(catchain::CatchainNode {
+        adnl_id: get_adnl_id(descr)?,
         public_key: sigpubkey_to_publickey(&descr.public_key)
-    }
+    })
 }
 
 pub fn validatordescr_to_session_node(descr: &ValidatorDescr) -> Result<SessionNode> {
     Ok(validator_session::SessionNode {
-        adnl_id: get_adnl_id(descr),
+        adnl_id: get_adnl_id(descr)?,
         public_key: sigpubkey_to_publickey(&descr.public_key),
         weight: descr.weight
     })
@@ -149,13 +149,15 @@ pub fn validatorset_to_string(vs: &ValidatorSet) -> String {
     res.string().unwrap_or_default()
 }
 
-// returns adnl_id of validator or calc it by the 
-pub fn get_adnl_id(validator: &ValidatorDescr) -> Arc<KeyId> {
-    if let Some(addr) = &validator.adnl_addr {
-        KeyId::from_data(*addr.as_slice())
-    } else {
-        KeyId::from_data(validator.compute_node_id_short().inner())
-    }
+/// The validator's ADNL address: a set must give one to every validator
+pub fn get_adnl_id(validator: &ValidatorDescr) -> Result<Arc<KeyId>> {
+    Ok(KeyId::from_data(*adnl_addr(validator)?.as_slice()))
+}
+
+fn adnl_addr(validator: &ValidatorDescr) -> Result<&UInt256> {
+    validator.adnl_addr.as_ref().ok_or_else(|| {
+        error!("validator {} has no ADNL address", hex::encode(validator.public_key.key_bytes()))
+    })
 }
 
 pub type ValidatorListHash = UInt256;
@@ -427,16 +429,18 @@ pub async fn get_shard_by_message(engine: Arc<dyn EngineOperations>, message: Ar
     Ok(shard)
 }
 
-pub fn get_group_members_by_validator_descrs(iterator: &[ValidatorDescr], dst: &mut Vec<GroupMember>)  {
+pub fn get_group_members_by_validator_descrs(
+    iterator: &[ValidatorDescr],
+    dst: &mut Vec<GroupMember>
+) -> Result<()> {
     for descr in iterator.iter() {
-        let node_id = descr.compute_node_id_short();
-        let adnl_id = descr.adnl_addr.clone().unwrap_or(node_id.clone());
         dst.push(ton_api::ton::engine::validator::validator::groupmember::GroupMember {
-            public_key_hash: node_id,
-            adnl: adnl_id,
+            public_key_hash: descr.compute_node_id_short(),
+            adnl: adnl_addr(descr)?.clone(),
             weight: descr.weight as i64,
         });
     };
+    Ok(())
 }
 
 pub fn is_remp_enabled(_engine: Arc<dyn EngineOperations>, config_params: &ConfigParams) -> bool {

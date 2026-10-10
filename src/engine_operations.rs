@@ -1230,7 +1230,7 @@ impl EngineOperations for Engine {
     async fn send_remp_receipt(&self, to: Arc<KeyId>, receipt: RempReceipt) -> Result<()> {
         let validators: Vec<CatchainNode> = self.load_actual_config_params().await?
             .validator_set()?.list()
-            .iter().map(validatordescr_to_catchain_node).collect();
+            .iter().map(validatordescr_to_catchain_node).collect::<Result<_>>()?;
         let (key, adnl_id) = self.network
             .get_validator_key(&validators).await?
             .ok_or_else(|| error!("Can't get validator's key"))?;
