@@ -40,8 +40,6 @@ pub mod ext_messages;
 
 mod shard_blocks;
 
-include!("../common/src/info.rs");
-
 #[cfg(feature = "external_db")]
 mod external_db;
 

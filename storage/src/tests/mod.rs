@@ -97,4 +97,12 @@ pub mod utils {
         (block_handle_storage, block_handle_db)
     }
 
+    pub fn init_test_log() {
+        let config = "../configs/log_cfg_debug.yml";
+        if !log::log_enabled!(log::Level::Error) {
+            log4rs::init_file(config, Default::default())
+                .unwrap_or_else(|_| panic!("Cannot read logging configuration from {}", config));
+        }
+    }
+
 }

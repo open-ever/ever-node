@@ -26,8 +26,6 @@ use ever_block::{error, Result, UInt256};
 
 const DB_PATH: &str = "../target/test";
 
-// include!("../../../../common/src/log.rs");
-
 const TESTDATA_PATH: &str = "src/archives/tests/testdata/";
 const ARCHIVE_00000_GOLD: &str = "archive.00000-2.pack.gold";
 const ARCHIVE_00100_GOLD: &str = "archive.00100.pack.gold";
@@ -124,7 +122,6 @@ async fn test_scenario_keyblocks_10m() -> Result<()> {
 
     const DB_NAME: &str = "test_scenario_keyblocks_10m";
 
-    // init_log("./../common/config/log_cfg.yml");
     let path = Path::new(DB_PATH).join(DB_NAME);
     let db = RocksDb::with_path(DB_PATH, DB_NAME)?;
     let (block_handle_storage, _) = create_block_handle_storage(db.clone());
@@ -214,7 +211,6 @@ async fn test_clean_unapplied_files() {
 
     const DB_NAME: &str = "clean_db";
 
-    // init_log("./../common/config/log_cfg.yml");
     let path = Path::new(DB_PATH).join(DB_NAME);
     let db = RocksDb::with_path(DB_PATH, DB_NAME).unwrap();
     let manager = ArchiveManager::with_data(
@@ -352,7 +348,6 @@ async fn test_archive_truncate() {
 
     const DB_NAME: &str = "node_db_slices";
 
-    // init_log("../common/config/log_cfg.yml");
     let manager = TestArchiveManager::new(DB_PATH, DB_NAME).await.unwrap();
 
     manager.add_entries(1..306, 0, &[53]).await;

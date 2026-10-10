@@ -14,6 +14,7 @@
 use crate::{
     db::rocksdb::{RocksDb, destroy_rocks_db},
     shardstate_db_async::{AllowStateGcResolver, CellsDbConfig, ShardStateDb}, StorageAlloc,
+    tests::utils::init_test_log,
 };
 #[cfg(feature = "telemetry")]
 use crate::StorageTelemetry;
@@ -22,8 +23,6 @@ use std::{
 };
 use ever_block::{BlockIdExt, ShardIdent};
 use ever_block::{Cell, Result, UInt256, read_single_root_boc};
-
-include!("../../../common/src/log.rs");
 
 const DB_PATH: &str = "../target/test";
 
@@ -53,7 +52,7 @@ impl AllowStateGcResolver for MockedResolver {
 #[tokio::test(flavor = "multi_thread")]
 async fn test_shardstate_db_async() -> Result<()> {
 
-    init_log("../configs/log_cfg_debug.yml");
+    init_test_log();
 
     const DB_NAME: &str = "test_shardstate_db_async";
 
@@ -150,7 +149,7 @@ async fn test_shardstate_db_migration() -> Result<()> {
 
     std::env::set_var("RUST_BACKTRACE", "full");
 
-    init_log("../configs/log_cfg_debug.yml");
+    init_test_log();
 
     const DB_NAME: &str = "shardstate_db_v5";
 

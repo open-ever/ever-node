@@ -1,5 +1,4 @@
 [package]
-build = '../common/build/build.rs'
 edition = '2021'
 name = 'catchain'
 version = '0.1.1'

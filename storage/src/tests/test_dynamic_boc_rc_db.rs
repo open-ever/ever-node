@@ -21,14 +21,10 @@ use std::sync::Arc;
 use ever_block::CellsFactory;
 use ever_block::{BuilderData, Cell, IBitstring, Result};
 
-include!("../../../common/src/log.rs");
-
 const DB_PATH: &str = "../target/test";
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_dynamic_boc_rc_db() -> Result<()> {
-
-    //init_log("../common/config/log_cfg.yml");
 
     const DB_NAME: &str = "test_dynamic_boc_rc_db";
 
@@ -77,7 +73,7 @@ async fn test_dynamic_boc_rc_db() -> Result<()> {
 #[tokio::test(flavor = "multi_thread")]
 async fn test_dynamic_boc_rc_db_2() -> Result<()> {
 
-    init_log("../configs/log_cfg_debug.yml");
+    init_test_log();
     println!();
 
     const DB_NAME: &str = "test_dynamic_boc_rc_db_2";

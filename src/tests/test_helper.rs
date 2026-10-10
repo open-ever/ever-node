@@ -33,24 +33,159 @@ use crate::validator::{
 #[cfg(feature = "telemetry")]
 use crate::{collator_test_bundle::create_engine_telemetry, engine_traits::EngineTelemetry};
 
+use adnl::node::{AdnlNodeConfig, AdnlNodeConfigJson};
 use ever_block::{
     error, Account, BlkMasterInfo, Block, BlockIdExt, BlockSignatures, Cell, ConfigParam0,
     ConfigParam34, ConfigParamEnum, ConfigParams, Deserializable, HashmapAugType, InMsgDescr,
-    InRefValue, McStateExtra, Message, OutMsgDescr, Serializable, ShardAccount, 
-    ShardAccountBlocks, ShardIdent, ShardStateUnsplit, Transaction, U15, UInt256, 
+    InRefValue, McStateExtra, Message, OutMsgDescr, Serializable, ShardAccount,
+    ShardAccountBlocks, ShardIdent, ShardStateUnsplit, Transaction, U15, UInt256,
     ValidatorBaseInfo, ValidatorDescr, ValidatorSet, write_boc, CommonMessage,
+    fail, sha256_digest, Result,
 };
 use ever_block_json::*;
 use std::{
-    future::Future, path::Path, pin::Pin, sync::{{Arc, RwLock}, atomic::{AtomicU32, Ordering}},
-    time::Duration
+    env, ffi::OsString, fs::{File, read_to_string}, future::Future, io::Write,
+    net::{IpAddr, SocketAddr}, path::{Path, PathBuf}, pin::Pin,
+    sync::{{Arc, RwLock}, atomic::{AtomicU32, Ordering}}, time::Duration
 };
 use storage::block_handle_db::{BlockHandle, Callback, StoreJob};
 use ton_api::ton::ton_node::broadcast::BlockBroadcast;
 use crate::validator::validator_utils::PrevBlockHistory;
 
-include!("../../common/src/config.rs");
-include!("../../common/src/test.rs");
+const ENV_VAR_PORT: &str = "BASE_PORT";
+
+pub fn configure_ip(template: &str, default_port: u16) -> String {
+    let port = env::var(ENV_VAR_PORT).unwrap_or_else(|_| format!("{}", default_port));
+    let Some(pos) = template.find(":") else {
+        panic!("Wrong IP template {}", template)
+    };
+    let port: u16 = port.parse()
+        .unwrap_or_else(|err| panic!("Wrong port value {}: {}", port, err));
+    let offset: u16 = template[pos + 1..].parse()
+        .unwrap_or_else(|err| panic!("Wrong port in template {}: {}", template, err));
+    let ret = format!("{}:{}", &template[..pos], port + offset);
+    println!("\nUsing {} local address", ret);
+    ret
+}
+
+pub async fn resolve_ip(ip: &str) -> Result<SocketAddr> {
+    let mut ret = ip.parse::<SocketAddr>()?;
+    if ret.ip().is_unspecified() {
+        let ip = external_ip::ConsensusBuilder::new()
+            .add_sources(external_ip::get_http_sources::<external_ip::Sources>())
+            .build()
+            .get_consensus().await;
+        if let Some(IpAddr::V4(ip)) = ip {
+            ret.set_ip(IpAddr::V4(ip))
+        } else {
+            fail!("Cannot obtain own external IP address")
+        }
+    }
+    Ok(ret)
+}
+
+pub fn get_test_config_path(prefix: &str, addr: &SocketAddr) -> Result<PathBuf> {
+    let mut path = PathBuf::from(prefix);
+    let mut file_name = if let Some(file_name) = path.file_name() {
+        file_name.to_os_string()
+    } else {
+        OsString::new()
+    };
+    let parent = if let Some(parent) = path.parent() {
+        if parent.as_os_str().is_empty() {
+            None
+        } else if !parent.exists() {
+            fail!("Cannot generate config path: folder '{}' does not exist", parent.display())
+        } else {
+            Some(parent)
+        }
+    } else {
+        None
+    };
+    if parent.is_none() {
+        path = PathBuf::from("./target");
+        if !path.exists() {
+            path = PathBuf::from("../target");
+            if !path.exists() {
+                fail!("Cannot generate config path: no target folder exists")
+            }
+        };
+        path.push(prefix);
+    }
+    let suffix = if let IpAddr::V4(ip) = addr.ip() {
+        format!(
+            "_{}_{}.json",
+            ip.to_string().as_str(),
+            addr.port().to_string().as_str()
+        )
+    } else {
+        fail!("Cannot generate config path for IP address that is not V4")
+    };
+    file_name.push(suffix);
+    path.set_file_name(file_name);
+    Ok(path)
+}
+
+pub fn generate_adnl_configs(
+    ip: &str,
+    tags: Vec<usize>,
+    addr: Option<SocketAddr>
+) -> Result<(AdnlNodeConfigJson, AdnlNodeConfig)> {
+    if let Some(addr) = addr {
+        let mut keys = Vec::new();
+        let addr = addr.to_string();
+        for tag in tags {
+            let mut data = Vec::new();
+            data.extend_from_slice(addr.as_bytes());
+            data.extend_from_slice(&tag.to_be_bytes());
+            let key = sha256_digest(&data);
+            keys.push((key, tag));
+        }
+        AdnlNodeConfig::from_ip_address_and_private_keys(ip, keys)
+    } else {
+        AdnlNodeConfig::with_ip_address_and_private_key_tags(ip, tags)
+    }
+}
+
+pub async fn get_adnl_config(
+    prefix: &str,
+    ip: &str,
+    tags: Vec<usize>,
+    deterministic: bool
+) -> Result<AdnlNodeConfig> {
+    let resolved_ip = resolve_ip(ip).await?;
+    let config = get_test_config_path(prefix, &resolved_ip)?;
+    let config = if config.exists() {
+        let config = read_to_string(config)?;
+        AdnlNodeConfig::from_json(config.as_str())?
+    } else {
+        let resolved_ip = if deterministic {
+            Some(resolved_ip)
+        } else {
+            None
+        };
+        let (json, bin) = generate_adnl_configs(ip, tags, resolved_ip)?;
+        File::create(config)?.write_all(
+            serde_json::to_string_pretty(&json)?.as_bytes()
+        )?;
+        bin
+    };
+    Ok(config)
+}
+
+pub fn init_test_log() {
+    let config = "./configs/log_cfg_debug.yml";
+    if !log::log_enabled!(log::Level::Error) {
+        log4rs::init_file(config, Default::default())
+            .unwrap_or_else(|_| panic!("Cannot read logging configuration from {}", config));
+    }
+}
+
+// Some tests are tokio::test that do not need explicit runtime
+pub fn init_test() -> tokio::runtime::Runtime {
+    init_test_log();
+    tokio::runtime::Runtime::new().unwrap()
+}
 
 // replace assert_eq for compare not to get panic
 macro_rules! assert_eq {

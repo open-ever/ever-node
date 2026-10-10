@@ -39,8 +39,6 @@ use ton_api::{
 #[cfg(feature = "telemetry")]
 use ton_api::tag_from_bare_object;
 
-include!("../common/src/test.rs");
-
 trait SendReceive<Q> {
     fn send(params: &mut impl Iterator<Item = Q>) -> Result<TLObject>;
     fn receive(
@@ -1453,7 +1451,6 @@ mod test {
     async fn init_test(
         counter: Option<Arc<AtomicU64>>
     ) -> (ControlServer, ControlClient, Arc<TestEngine>) {
-        // init_test_log();
         std::fs::write(Path::new(CFG_DIR).join(CFG_NODE_FILE), ADNL_SERVER_CONFIG).unwrap();
         std::fs::write(Path::new(CFG_DIR).join(CFG_GLOB_FILE), GLOBAL_CONFIG).unwrap();
         let node_config = NodeConfig::from_file(CFG_DIR, CFG_NODE_FILE, None, None, None).unwrap();

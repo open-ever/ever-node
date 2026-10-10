@@ -191,11 +191,8 @@ fn create_external_message(dst_shard: u8, salt: Vec<u8>) -> Arc<Message>  {
     Arc::new(Message::with_ext_in_header(hdr))
 }
 
-include!("../../common/src/log.rs");
-
 #[test]
 fn test_messages_pool() {
-    //init_log_without_config(log::LevelFilter::Trace, None);
     let mp = Arc::new(MessagesPool::new(0, None));
 
     // create 3 messages, 2 of them are with the prefix 0x01 and one with 0x22

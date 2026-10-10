@@ -29,7 +29,7 @@ apt-get install pkg-config make clang libssl-dev libzstd-dev libgoogle-perftools
 ### Installing
 
 ```
-git clone --recurse-submodules https://github.com/open-ever/ever-node.git
+git clone https://github.com/open-ever/ever-node.git
 cd ever-node
 cargo build --release
 ```

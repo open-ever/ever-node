@@ -1,5 +1,4 @@
 [package]
-build = '../common/build/build.rs'
 edition = '2021'
 name = 'validator_session'
 version = '0.0.3'

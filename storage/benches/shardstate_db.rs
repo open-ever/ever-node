@@ -23,8 +23,6 @@ use ever_block::{BlockIdExt, ShardIdent};
 use ever_block::{Cell, Result, BuilderData};
 use rand::{Rng, SeedableRng};
 
-include!("../../common/src/log.rs");
-
 const DB_PATH: &str = "../target/test";
 
 fn update_boc(old_root: &Cell, need_cells: u32, new_cells: &mut u32, rng: &mut impl rand::RngCore) -> Result<Cell> {
@@ -128,7 +126,7 @@ async fn main() -> Result<()> {
     let update = 5_000;
     let updates = 500;
 
-    init_log("../configs/log_cfg_debug.yml");
+    log4rs::init_file("../configs/log_cfg_debug.yml", Default::default())?;
 
     const DB_NAME: &str = "bench_shardstate_db";
 

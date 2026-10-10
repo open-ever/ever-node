@@ -1,5 +1,4 @@
 [package]
-build = 'common/build/build.rs'
 edition = '2021'
 name = 'ever-node'
 version = '0.60.11'

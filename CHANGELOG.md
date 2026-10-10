@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file.
 
 *1) Dependency switch:*
 - Switched all necessary git dependencies to `open-ever` repositories.
-- Switched the `common` submodule to `open-ever/common`.
+- Removed the `common` submodule, build script and helpers are now part of the repository.
 - Bumped the Rust toolchain to the latest stable release (1.99.0).
 - Adapted the `catchain` to support the up-to-date `adnl` package.
 - Updated `ever-tl` (`open-ever/ever-tl`) to 0.4.35 and `ever-block-json` (`open-ever/ever-block-json`) to 0.9.43, which uses it.

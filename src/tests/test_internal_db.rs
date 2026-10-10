@@ -18,7 +18,7 @@ use crate::{
         BlockResult, InternalDb, InternalDbConfig, CURRENT_DB_VERSION, 
         restore::set_graceful_termination
     },
-    shard_state::ShardStateStuff, test_helper::{are_shard_states_equal, WaitForHandle},
+    shard_state::ShardStateStuff, test_helper::{are_shard_states_equal, init_test_log, WaitForHandle},
     types::top_block_descr::{TopBlockDescrId, TopBlockDescrStuff},
 };
 #[cfg(feature = "telemetry")]
@@ -34,8 +34,6 @@ use ever_block::{
 };
 use ever_block::{error, fail, Result, sha256_digest_slices, UInt256};
 use storage::types::BlockMeta;
-
-include!("../../common/src/test.rs");
 
 const DB_PATH: &str = "target/test";
 
