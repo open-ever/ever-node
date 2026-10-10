@@ -4,15 +4,16 @@ use super::{
     transaction::Transaction,
     types::{KeystoreFile, KEYSTORE_VERSION},
 };
-use crate::utils::atomic_write::write_file_atomic;
 
-use anyhow::{bail, format_err, Result};
-use parking_lot::{RwLock, RwLockUpgradableReadGuard};
 use std::{
     fs, io,
     path::{Path, PathBuf},
     sync::Arc,
 };
+
+use crate::utils::atomic_write::write_file_atomic;
+use anyhow::{bail, format_err, Result};
+use parking_lot::{RwLock, RwLockUpgradableReadGuard};
 
 pub struct Keystore {
     path: PathBuf,
@@ -28,8 +29,13 @@ impl Keystore {
             None => create_file(&path)?,
         };
 
-        let snapshot = Snapshot::build(file)
+        let snapshot = Snapshot::build(file.clone())
             .map_err(|reason| format_err!("keystore {}: {reason}", path.display()))?;
+
+        if snapshot.file != file {
+            write_file(&path, &snapshot.file)?;
+            log::info!("Keystore: rewrote {}", path.display());
+        }
 
         Ok(Arc::new(Self {
             path,

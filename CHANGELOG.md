@@ -30,7 +30,7 @@ All notable changes to this project will be documented in this file.
 - Telemetry counters are reset regardless of the log level, added backoff to master block apply retries.
 
 *5) Keystore, storage of private keys:*
-- All private keys moved from `config.json` to `keystore.json`, which the node creates and writes atomically: validator keys, DHT and public overlay keys, control and lite server keys.
+- All private keys moved from `config.json` to `keystore.json`, which the node creates and writes atomically: validator keys, DHT and public overlay keys, control and lite server keys. Each key is stored with its public key, which the node rewrites from the private key.
 - The node manages validator keys itself: a signing key per election and two validator ADNL keys used in turn, so consecutive rounds never share an ADNL address. Keys of finished elections are removed.
 
 *6) Control server API and console CLI:*

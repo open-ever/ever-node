@@ -1,9 +1,10 @@
 use super::{
-    keys::{decode_key, encode_id},
-    types::{Election, KeystoreFile, StoredElection, KEYSTORE_VERSION},
+    keys::{encode_id, encode_public_key, private_key},
+    types::{Election, KeystoreFile, StoredElection, StoredKey, KEYSTORE_VERSION},
 };
 
-use ever_block::{KeyId, KeyOption};
+use anyhow::{bail, format_err, Result};
+use ever_block::{base64_decode, KeyId, KeyOption};
 use std::sync::Arc;
 
 pub struct Snapshot {
@@ -17,36 +18,33 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
-    pub(super) fn build(mut file: KeystoreFile) -> Result<Self, String> {
+    pub(super) fn build(mut file: KeystoreFile) -> Result<Self> {
         if file.version != KEYSTORE_VERSION {
-            return Err(format!("version {} is not supported", file.version));
+            bail!("version {} is not supported", file.version);
         }
 
-        let dht_key = decode_key(&file.dht).map_err(|e| format!("DHT key: {e}"))?;
-        let public_overlay_key =
-            decode_key(&file.public_overlay).map_err(|e| format!("public overlay key: {e}"))?;
-        let control_server_key =
-            decode_key(&file.control_server).map_err(|e| format!("control server key: {e}"))?;
-        let lite_server_key =
-            decode_key(&file.lite_server).map_err(|e| format!("lite server key: {e}"))?;
+        let dht_key = Self::load_key(&mut file.dht, "dht")?;
+        let public_overlay_key = Self::load_key(&mut file.public_overlay, "public_overlay")?;
+        let control_server_key = Self::load_key(&mut file.control_server, "control_server")?;
+        let lite_server_key = Self::load_key(&mut file.lite_server, "lite_server")?;
 
         let mut validator_adnl_keys = Vec::new();
 
-        for (n, stored) in file.validator_adnl.iter().enumerate() {
-            let key = decode_key(stored).map_err(|e| format!("validator ADNL key #{n}: {e}"))?;
-            validator_adnl_keys.push(key);
+        for (n, stored) in file.validator_adnl.iter_mut().enumerate() {
+            validator_adnl_keys.push(Self::load_key(stored, &format!("validator_adnl[{n}]"))?);
         }
 
         file.elections.sort_by_key(|stored| stored.election_id);
         let mut elections: Vec<Election> = Vec::new();
 
-        for stored in &file.elections {
+        for stored in &mut file.elections {
             let id = stored.election_id;
+
             if elections.iter().any(|other| other.election_id == id) {
-                return Err(format!("election {id} is stored more than once"));
+                bail!("election_id {id} is stored more than once");
             }
 
-            elections.push(decode_election(stored, &validator_adnl_keys)?);
+            elections.push(Self::load_election(stored, &validator_adnl_keys)?);
         }
 
         Ok(Self {
@@ -71,24 +69,40 @@ impl Snapshot {
             .iter()
             .find(|election| election.key.id().as_ref() == key)
     }
-}
 
-fn decode_election(
-    stored: &StoredElection,
-    adnl_keys: &[Arc<dyn KeyOption>],
-) -> Result<Election, String> {
-    let id = stored.election_id;
-    let adnl_id = &stored.adnl;
+    /// Decodes the private key and rewrites the public key from it
+    fn load_key(stored: &mut StoredKey, field: &str) -> Result<Arc<dyn KeyOption>> {
+        let data = base64_decode(&stored.private_key)
+            .map_err(|e| format_err!("{field} private key: invalid base64: {e}"))?;
 
-    let key = decode_key(&stored.key).map_err(|e| format!("signing key of election {id}: {e}"))?;
+        let secret: &[u8; 32] = data
+            .as_slice()
+            .try_into()
+            .map_err(|_| format_err!("{field} private key: {} bytes instead of 32", data.len()))?;
 
-    let Some(adnl_key) = adnl_keys.iter().find(|k| encode_id(k.id()) == *adnl_id) else {
-        return Err(format!("ADNL key {adnl_id} of election {id} isn't valid"));
-    };
+        let key = private_key(secret);
+        stored.public_key = encode_public_key(&key);
 
-    Ok(Election {
-        election_id: id,
-        key,
-        adnl: adnl_key.id().clone(),
-    })
+        Ok(key)
+    }
+
+    fn load_election(
+        stored: &mut StoredElection,
+        adnl_keys: &[Arc<dyn KeyOption>],
+    ) -> Result<Election> {
+        let id = stored.election_id;
+        let adnl_id = &stored.adnl;
+
+        let key = Self::load_key(&mut stored.key, &format!("election {id}"))?;
+
+        let Some(adnl_key) = adnl_keys.iter().find(|k| encode_id(k.id()) == *adnl_id) else {
+            bail!("election {id} adnl {adnl_id} matches no validator_adnl key");
+        };
+
+        Ok(Election {
+            election_id: id,
+            key,
+            adnl: adnl_key.id().clone(),
+        })
+    }
 }

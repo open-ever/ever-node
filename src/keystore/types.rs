@@ -47,6 +47,10 @@ pub(super) struct StoredElection {
 pub(super) struct StoredKey {
     /// Ed25519 private key, base64
     pub(super) private_key: String,
+
+    /// Ed25519 public key, base64, rewritten from the private key on every load
+    #[serde(default)]
+    pub(super) public_key: String,
 }
 
 /// Keys of an election the node takes part in.

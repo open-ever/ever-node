@@ -1,7 +1,7 @@
 use super::*;
 use crate::utils::atomic_write::tmp_path;
 use anyhow::{bail, Result};
-use ever_block::{Ed25519KeyOption, KeyId};
+use ever_block::{base64_encode, Ed25519KeyOption, KeyId};
 use std::{fs, path::PathBuf, sync::Arc};
 
 fn test_path(name: &str) -> PathBuf {
@@ -96,6 +96,41 @@ fn test_failed_update_changes_nothing() {
 
     assert_eq!(fs::read(&path).unwrap(), file);
     assert!(Arc::ptr_eq(&keystore.snapshot(), &snapshot));
+}
+
+#[test]
+fn test_public_keys_are_rewritten() {
+    let (keystore, path) = open("public_keys");
+    add_election(&keystore, 1000);
+    drop(keystore);
+
+    // A missing public key, a broken one and one left from a replaced private key
+    let mut json: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    json["dht"].as_object_mut().unwrap().remove("public_key");
+    json["lite_server"]["public_key"] = "broken".into();
+    json["control_server"]["private_key"] = base64_encode(rand::random::<[u8; 32]>()).into();
+    fs::write(&path, serde_json::to_vec(&json).unwrap()).unwrap();
+
+    let keystore = Keystore::open_or_create(&path).unwrap();
+    let snapshot = keystore.snapshot();
+    let json: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+
+    let stored_keys = [
+        (&json["dht"], &snapshot.dht_key),
+        (&json["public_overlay"], &snapshot.public_overlay_key),
+        (&json["control_server"], &snapshot.control_server_key),
+        (&json["lite_server"], &snapshot.lite_server_key),
+        (&json["validator_adnl"][0], &snapshot.validator_adnl_keys[0]),
+        (&json["elections"][0]["key"], &snapshot.elections[0].key),
+    ];
+
+    for (stored, key) in stored_keys {
+        assert_eq!(stored["public_key"], base64_encode(key.pub_key().unwrap()));
+    }
+
+    drop(keystore);
+    fs::create_dir(tmp_path(&path)).unwrap();
+    Keystore::open_or_create(&path).unwrap();
 }
 
 #[test]
